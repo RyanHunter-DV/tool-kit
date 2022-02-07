@@ -1,0 +1,12 @@
+features:
+	1.record full filenames that opened by vim/gvim
+		## most recent file recorded by lowest index
+	2.can record maximum 50 filenames
+	3.can easily reopen the recorded file by specifying the corresponding index
+		# vimshell -r <index>
+	4.display recorded file information:
+		# vimshell -l
+		# which will display file list like:
+			# [1] /fullPath/filename2
+			# [0] /fullPath/filename
+	5.TBD, reserved for later versions
