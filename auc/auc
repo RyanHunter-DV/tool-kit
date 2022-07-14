@@ -1,0 +1,12 @@
+#! /usr/bin/env ruby
+
+
+## main shell of auc tool
+
+require 'rhload';
+$LOAD_PATH << File.dirname(File.absolute_path(__FILE__));
+
+rhload 'lib/main'
+
+e = MainEntry.new();
+e.run();

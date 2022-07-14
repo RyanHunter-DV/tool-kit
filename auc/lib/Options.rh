@@ -1,0 +1,41 @@
+require 'optparse'
+
+class Options ##{
+
+	attr :options;
+	def initialize ##{{{
+		@options = {};
+		@options[:help]    = false;
+		@options[:feature] = [];
+		@options[:config]  = [];
+
+		OptionParser.new do |opts|
+			opts.on('-h',"display help message") do |v|
+				@options[:help] = true;
+			end
+			opts.on('-f','--feature FILENAME',"load manual features") do |v|
+				@options[:feature] << v;
+			end
+			opts.on('-c','--configure FILENAME',"load user configures") do |v|
+				@options[:config] << v;
+			end
+		end.parse!
+		if @options[:help]==true
+			usage();
+			exit 0;
+		end
+	end ##}}}
+
+	def usage ##{
+		puts "display help message here<TBD>"
+	end ##}
+
+	def [](n) ##{
+		if @options.has_key?(n.to_sym)
+			return @options[n.to_sym];
+		else
+			return nil;
+		end
+	end ##}
+
+end ##}

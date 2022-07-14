@@ -1,0 +1,10 @@
+output 'exampleDriver.svh' do
+	svclass 'exampleDriver' do
+		tparam 'REQ=uvm_sequence_item,RSP=REQ'
+		extends 'uvm_driver#(REQ,RSP)'
+		feature :build, true
+		feature :connect, false
+		feature :run, true
+		## feature :reseth, true ## default is false
+	end
+end

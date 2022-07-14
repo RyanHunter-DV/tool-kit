@@ -1,0 +1,44 @@
+rhload 'SVClass'
+class OutFile ##{
+
+	attr_accessor :fname;
+	attr_accessor :svclasses;
+
+	## set output filename
+	def initialize n ##{
+		@fname     = n;
+		@svclasses = [];
+	end ##}
+
+	## used for instance_eval, svclass will be called
+	## when this out file want to declare a new class
+	def svclass n,&blk
+		c = SVClass.new(n)
+		c.instance_eval &blk;
+		@svclasses << c;
+	end
+
+	def filehead fh
+		head = @fname;
+		head.gsub!(/\./,'__');
+		fh.write '`ifndef '+head+"\n";
+		fh.write '`define '+head+"\n";
+		fh.write "\n";
+	end
+
+	def filetail fh ##{
+		fh.write "\n";
+		fh.write '`endif'+"\n"
+	end ##}
+
+	def generate
+		fh = File.open(@fname,'w');
+		filehead fh;
+		@svclasses.each do |c|
+			c.generate fh
+		end
+		filetail fh;
+		fh.close
+	end
+
+end ##}

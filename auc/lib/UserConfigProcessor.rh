@@ -1,0 +1,22 @@
+rhload 'OutFile'
+class UserConfigProcessor ##{
+
+	attr_accessor :outputs;
+
+	def initialize ##{
+		@outputs = [];
+	end ##}
+
+	def output f,&blk ##{
+		o = OutFile.new(f)
+		o.instance_eval &blk;
+		@outputs << o;
+	end ##}
+
+	def generate ##{
+		@outputs.each do |o|
+			o.generate
+		end
+	end ##}
+
+end ##}

@@ -1,0 +1,82 @@
+class SVClass ##{
+
+	attr_accessor :classname;
+	attr_accessor :params;
+	attr_accessor :parent;
+	attr_accessor :features;
+
+	def initialize n
+		@classname= n;
+		@params   = [];
+		@param    = '';
+		@features = {};
+		@parent   = '';
+	end
+
+	## tparam, support by svclass, setup type parameter
+	def tparam s ##{
+		@params << 'type '+s;
+	end ##}
+
+	def param s ##{
+		@params << s;
+	end ##}
+
+	def extends s ##{
+		@parent = s.to_s;
+		
+		if isComponent?
+			## enable phases by default
+			@features[:compdecl]= true;
+			@features[:build]   = true;
+			@features[:connect] = true;
+			@features[:run]     = true;
+		else
+			@features[:objdecl] = true;
+		end
+	end ##}
+
+	def feature n,e=false ##{
+		@features[n.to_sym] = e;
+	end ##}
+
+	def generate fh ##{
+		line = "class "+@classname;
+
+		unless @params.empty?;
+			params = @params.join(',');
+			line += '#('+params+')';
+		end
+		line += " extends #{@parent};"if @parent;
+		fh.write (line+"\n");
+
+		@features.each_pair do |f,v| ##{
+			if v==true
+				cnts = $features.contents f,1
+				cnts.each do |l|
+					fh.write(l+"\n")
+				end
+			end
+		end ##}
+
+		fh.write('endclass'+"\n");
+	end ##}
+
+private
+
+	def isComponent?
+		comps = [
+			'uvm_driver','uvm_agent','uvm_component',
+			'uvm_test','uvm_env','uvm_monitor',
+			'uvm_sequencer'
+		];
+
+		comps.each do |p|
+			ptrn = Regexp.new(p);
+			return true if ptrn.match(@parent);
+		end
+
+		return false;
+	end
+
+end ##}

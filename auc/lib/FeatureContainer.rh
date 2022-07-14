@@ -1,0 +1,43 @@
+rhload 'Feature'
+class FeatureContainer ##{
+
+	attr_accessor :features;
+
+	def initialize ##{{{
+		@features = {};
+	end ##}}}
+
+	## feature API here used for feature definition, so blk
+	## must be given
+	def feature n,&blk ##{{{
+		return unless block_given?;
+		## create a new Feature
+		## call new feature's instance_eval &blk
+		## append new feature into @features
+		f = Feature.new(n);
+		f.instance_eval &blk;
+		@features[n.to_sym] = f;
+	end ##}}}
+
+
+	## load feature file, the file and path is specified by f
+	##
+	def load f ##{{{
+		fh = File.open(f,'r');
+		cnts = fh.readlines().join();
+		self.instance_eval (cnts)
+	end ##}}}
+
+	def contents f,bindent ##{
+		if @features.has_key?(f.to_sym)
+			return @features[f].contents bindent;
+		end
+		puts "Error, feature(#{f}) not found";
+		return [];
+	end ##}
+
+private
+
+
+
+end ##}

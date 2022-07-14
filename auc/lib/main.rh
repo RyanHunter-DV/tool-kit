@@ -1,0 +1,58 @@
+## init global variable
+$features = nil;
+
+
+rhload 'Options'
+rhload 'FeatureContainer'
+rhload 'UserConfigProcessor'
+
+
+class MainEntry ##{
+
+	attr_accessor :opts;
+
+	def initialize
+		## 1. process options
+		@opts = Options.new();
+		## 2. set global feature container: $features
+		$features = FeatureContainer.new();
+	end
+
+	def loadBuiltinFeatures
+		p = File.dirname(File.absolute_path(__FILE__))+'/../builtin';
+		builtin = p+'/builtin.rh';
+		puts "[DEBUG] loading builtin feature: #{builtin}"
+		$features.load(builtin);
+	end
+
+	## loading user features, for v1, tool only supports
+	## full path of feature files that specified by -f
+	def loadUserFeatures fs=[]
+		fs.each do
+			|fs|
+			$features.load(fs);
+		end
+	end
+
+	def noconfigure
+		puts "Error, no user configuration get"
+		exit 3;
+	end
+
+	def run
+		## 1. load built-in features
+		loadBuiltinFeatures;
+		## 2. load user features if has
+		loadUserFeatures(@opts[:feature]) unless @opts[:feature].empty?;
+		## 3. load user configurations by @opts[:config]
+		noconfigure if @opts[:config].empty?;
+		p = UserConfigProcessor.new()
+		@opts[:config].each do |c|
+			fh = File.open(c,'r');
+			cnts = fh.readlines().join();
+			p.instance_eval cnts;
+		end
+		p.generate
+	end
+
+end ##}

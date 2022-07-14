@@ -1,0 +1,25 @@
+feature :build do
+	src 'function void build_phase(uvm_phase phase);'
+	src 'super.build_phase(phase);',:inc
+	src 'endfunction',:dec
+end
+feature :connect do
+	src 'function void connect_phase(uvm_phase phase);'
+	src 'super.connect_phase(phase);',:inc
+	src 'endfunction',:dec
+end
+feature :run do
+	src 'task run_phase(uvm_phase phase);'
+	src 'super.run_phase(phase);',:inc
+	src 'endtask',:dec
+end
+
+feature :compdecl do
+	src '`uvm_component_utils_begin(<classname>)'
+	src '`uvm_component_utils_end'
+end
+
+feature :objdecl do
+	src '`uvm_object_utils_begin(<classname>)'
+	src '`uvm_object_utils_end'
+end

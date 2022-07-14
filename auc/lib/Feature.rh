@@ -1,0 +1,44 @@
+class Feature ##{
+
+	attr_accessor :name;
+	attr_accessor :blocks;
+	attr_accessor :cnts;
+	attr_accessor :cindent;
+
+	def initialize n ##{
+		@name    = n;
+		@blocks  =[];
+		@cnts    =[];
+		## for each feature, default indent is 1, because
+		## it's within the class definition
+		@cindent = 0;
+	end ##}
+
+	## s: is the string that will be print into file directly
+	## indent: the line indent:
+	## :inc->inc one tab,:dec->dec one tab,:none->nothing
+	def src s,indent=:none ##{
+		line = '';
+		@cindent += 1 if indent.to_sym==:inc;
+		@cindent -= 1 if indent.to_sym==:dec;
+		@cindent.times do |i|
+			line += "\t";
+		end
+		line = line+s;
+		@cnts << line;
+	end ##}
+
+	def contents bindent ##{
+		newCnts = [];
+		bstr = '';
+		bindent.times do |i|
+			bstr += "\t";
+		end
+		@cnts.each do |item|
+			newCnts << bstr+item;
+		end
+		return newCnts;
+	end ##}
+
+
+end ##}
