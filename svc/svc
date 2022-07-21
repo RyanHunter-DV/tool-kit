@@ -1,0 +1,11 @@
+#! /usr/bin/env ruby
+
+require 'rhload.rb'
+$LOAD_PATH << File.dirname(File.absolute_path(__FILE__));
+
+rhload 'lib/MainEntry'
+
+e = MainEntry.new();
+
+$signal = e.run();
+exit $signal;

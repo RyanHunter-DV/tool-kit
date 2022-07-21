@@ -1,0 +1,50 @@
+rhload 'RHFile';
+class MainEntry; ##{
+
+	attr_accessor :src;
+
+	def initialize;
+		@src = ARGV[0];
+	end
+
+	def run;
+		sig = 0;
+		if File.exists?(@src)
+			process @src;
+		else
+			sig = 1;
+		end
+		return sig;
+	end
+
+private
+	def getTargetFiles s ##{
+		fh = File.open(s,'r');
+		cnts = fh.readlines();
+		files = [];
+		cnts.each do |l|
+			ptrn = Regexp.new('`include +\"(.+)\"');
+			md = ptrn.match(l);
+			if md!=nil && md[1] != 'uvm_macros.svh'
+				files << md[1];
+			end
+		end
+		return files;
+	end ##}
+	def splitFile srcFile ##{
+		p = RHPath.new(File.dirname(srcFile));
+		f = RHFile.new(File.basename(srcFile));
+
+		return [p,f];
+	end ##}
+	def process s ##{
+		targets = getTargetFiles s;
+		targets.each do
+			|full|
+			(path,file) = splitFile(full);
+			path.create unless path.exists;
+			file.create(path.name);
+		end
+	end ##}
+
+end ##}

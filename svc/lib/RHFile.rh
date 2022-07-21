@@ -1,0 +1,56 @@
+class RHFile; ##{
+	attr_accessor :name;
+	def initialize n
+		@name = n;
+	end
+
+	def exists p='.'
+		return File.exists?(File.join(p,@name));
+	end
+
+	def create p
+		return if @name=='';
+		unless exists(p)
+			puts "creating #{p}/#{@name}";
+			macro = @name.gsub('.','__');
+			full = p+'/'+@name;
+			fh = File.open(full,'w');
+			fh.write("`ifndef "+macro+"\n");
+			fh.write("`define "+macro+"\n");
+			fh.write("`endif");
+			fh.close;
+		end
+	end
+end ##}
+
+class RHPath; ##{
+	attr_accessor :name;
+	def initialize n
+		if n==''
+			@name = '.';
+		else
+			@name = n;
+		end
+	end
+	## exists and is a path
+	def exists
+		return Dir.exists?(@name)
+	end
+
+	def isParentPath;
+		if @name[0] == '.';
+			return true;
+		else
+			return false;
+		end
+	end
+
+	## create the target path
+	def create
+		return if isParentPath;
+		unless exists
+			puts "creating #{@name}/";
+			system "mkdir #{@name}";
+		end
+	end
+end ##}

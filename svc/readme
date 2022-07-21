@@ -1,0 +1,2 @@
+svc: tool to read specified package file and create all files coded as `include in package, except
+the uvm_macros.svh
