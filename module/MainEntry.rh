@@ -1,0 +1,74 @@
+def setenv v,p ##{
+	loadString = ''
+	if ENV['SHELL']=~/bash/
+		loadString = 'export '+v+'='+p;
+	elsif ENV['SHELL']=~/csh/
+		loadString = 'setenv '+v+' '+p;
+	end
+	puts loadString;
+end ##}
+
+class MainEntry ##{
+
+public
+
+	attr :modulePath;
+
+	def initialize ##{
+		@modulePath = [];
+		@modulePath = ENV['RHMODULE_PATH'].split(':') if ENV['RHMODULE_PATH'];
+	end ##}
+
+	def run ##{
+		command = ARGV[0];
+		m = ARGV[1];
+		case (command)
+			when 'load'
+				return addModule(m);
+			when 'swap'
+				$stderr.puts "swap not supported yet"
+				return 3;
+			when 'unload'
+				$stderr.puts "unload not supported yet"
+				return 3;
+			else
+				$stderr.puts "no command entered"
+				return 2;
+		end
+		return 0;
+	end ##}
+
+
+private
+
+	def __getModuleFile n,v ##{
+		@modulePath.each do |b|
+			mf = File.join(b,n,v,'modulefile')
+			if File.exists?(mf)
+				return mf;
+			end
+		end
+		$stderr.puts "no modulefile found for #{n}/#{v}"
+		return ''
+	end ##}
+
+	def __loadModuleFile mf ##{
+		cnts = [];
+
+		f = File.open(mf,'r');
+		cnts = f.readlines();
+		return cnts;
+	end ##}
+
+	def addModule m ##{
+		mn,v = m.split('/');
+		return 1 if not mn or not v;
+		mf = __getModuleFile(mn,v)
+		return 1 if mf=='';
+		load mf;
+		## cnts = __loadModuleFile(mf);
+		## self.instance_eval cnts.join();
+		return 0;
+	end ##}
+
+end ##}

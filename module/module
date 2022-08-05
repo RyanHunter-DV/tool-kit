@@ -1,0 +1,17 @@
+#! /usr/bin/env ruby
+
+require 'rhload';
+ToolHome = File.dirname(File.absolute_path(__FILE__));
+$LOAD_PATH << ToolHome;
+
+rhload 'MainEntry';
+
+e = MainEntry.new();
+$SIG = e.run();
+if $SIG != 0
+	$stderr.puts "module exit with error sig: #{$SIG}"
+else
+	$stderr.puts "module successfuly exit"
+end
+
+exit $SIG;
