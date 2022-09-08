@@ -56,6 +56,59 @@ def generateCPPFile src,h,b ##{
 
 end ##}
 
+def generateSVFile src,h ##{
+    headCode = [];
+    bodyCode = [];
+
+    fh = File.open(src,'r');
+    rawCnts = fh.readlines();
+    fh.close();
+    codeType = :prototype;
+    inCode   = false;
+    rawCnts.each do |l| ##{
+        l.chomp!;
+        if (inCode)
+            ## check ``` mark
+            if (l == '```')
+                inCode = false;
+                next;
+            end
+            ## process in code
+            if (codeType==:prototype)
+                headCode << l;
+            else
+                bodyCode << l;
+            end
+            next;
+        else
+            if (l == '```')
+                inCode=true;
+                next;
+            end
+        end
+        if (l=='**prototype**')
+            codeType = :prototype;
+            next;
+        end
+        if (l=='**procedures**')
+            codeType = :procedure;
+            next;
+        end
+    end ##}
+
+    fh = File.open(h,'w');
+    headCode.each do |l|
+        fh.write("#{l}\n");
+    end
+
+    bodyCode.each do |l|
+        fh.write("#{l}\n");
+    end
+    fh.close();
+
+
+end ##}
+
 
 
 
@@ -77,5 +130,5 @@ type = :sv if (bFile == nil);
 if (type==:cpp)
     generateCPPFile(srcFile,hFile,bFile);
 else
-    generateSVFile(srcFile);
+    generateSVFile(srcFile,hFile);
 end
