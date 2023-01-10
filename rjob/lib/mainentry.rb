@@ -39,6 +39,9 @@ class MainEntry
 		configs = __getconfigs__;
 		cmds << "#{configs[:user]}@#{configs[:host]}";
 		cmds << "'cd #{configs[:path]};"+__singleCommand__+"'" if @option.cmdmode==:cmd;
+		# run commands on shell
+		rtns = Shell.exec('./',cmds.join(' '));
+		return rtns[1];
 	end ##}}}
 	def __singleCommand__ ##{{{
 		return @option.cmd;
@@ -57,7 +60,7 @@ class MainEntry
 		if sname!=''
 			__setuphost__(sname);
 		else
-			__prepareCommand__;
+			return __prepareCommand__;
 		end
 		return 0;
 	end ##}}}
