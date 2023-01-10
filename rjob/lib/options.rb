@@ -14,6 +14,7 @@ class Options; ##{
 		@options[:host] = '';
 		@options[:setup]= '';
 		@options[:password] = '';
+		@options[:select] = '';
     end ##}}}
     def __filtercmd__ ##{{{
         @options[:cmd] = ARGV.pop;
@@ -39,8 +40,14 @@ class Options; ##{
 			opts.on('-w','--password=PASSWORD','specify user password') do |val|
 				@options[:password] = val;
 			end
+			opts.on('-r','--remote=HOSTID','specify remote hostid') do |val|
+				@options[:host] = val;
+			end
+			opts.on('-x','--select=configfile','specify to use a config file instead of manual specify user/path etc') do |val|
+				@options[:select] = val;
+			end
 		end.parse!
-        __filtercmd__ if @options[:cmdf]!=''; # TODO, need test
+        __filtercmd__ if @options[:cmdf]==''; # TODO, need test
 	end ##}}}
 
 	def helpMessage ##{
@@ -72,4 +79,6 @@ class Options; ##{
 	def host; return @options[:host]; end
 	def setup; return @options[:setup]; end
 	def password; return @options[:password]; end
+	def path; return @options[:path]; end
+	def config; return @options[:select]; end
 end ##}
