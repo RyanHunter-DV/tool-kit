@@ -40,7 +40,9 @@ class MainEntry
 		cmds << "#{configs[:user]}@#{configs[:host]}";
 		cmds << "'cd #{configs[:path]};"+__singleCommand__+"'" if @option.cmdmode==:cmd;
 		# run commands on shell
-		rtns = Shell.exec('./',cmds.join(' '));
+		cmd = cmds.join(' ');
+		puts "cmd: #{cmd}"
+		rtns = Shell.exec('./',cmd);
 		return rtns[1];
 	end ##}}}
 	def __singleCommand__ ##{{{
