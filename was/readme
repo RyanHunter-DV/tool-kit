@@ -1,0 +1,2 @@
+was: workarea setup tool, to download the specified project tree,
+and then download the dependencies specified by __be__/<manageTool>.was

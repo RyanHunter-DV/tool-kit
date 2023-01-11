@@ -1,0 +1,23 @@
+#! /usr/bin/env ruby
+
+"""
+this is the tool to setup workarea, version v1.0
+# Features
+to download a tree
+- was -t <tool> -r <path> -p <project>
+by default, we use the git tool
+the path is specified by user, if not specified, then will create a
+workarea the same name as <project> in current dir './'
+"""
+
+require 'rhload';
+$toolhome = File.dirname(File.absolute_path(__FILE__));
+$version = 'current'
+$LOAD_PATH << "#{$toolhome}/#{$version}";
+
+rhload 'lib/mainentry.rb';
+
+e = MainEntry.new();
+$SIG = e.run();
+puts "program exists with sig: #{$SIG}";
+exit $SIG;
