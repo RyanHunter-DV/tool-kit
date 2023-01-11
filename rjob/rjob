@@ -28,5 +28,5 @@ rhload 'lib/mainentry.rb';
 
 e = MainEntry.new();
 $SIG = e.run();
-puts "program exists with sig: #{$SIG}";
+## puts "program exists with sig: #{$SIG}";
 exit $SIG;
