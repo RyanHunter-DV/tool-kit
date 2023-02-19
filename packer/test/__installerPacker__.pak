@@ -1,0 +1,414 @@
+# <PACKER> - app/accessory/__optionProcess__.rb
+#! /usr/bin/env ruby
+
+
+def __processBashCommands__(raws) ##{{{
+	shellcmds = [];
+
+	cmd = raws[0];
+	tool= raws[1];
+
+	if cmd=='load' ##{
+		## load
+		shellcmds<<'cmd="load"';
+		md = /(.+)\/(.+)/.match(tool);
+		if md==nil
+			shellcmds<<"tool=\"#{tool}\"";
+			shellcmds<<'version="current"';
+		else
+			shellcmds<<"tool=\"#{md[1]}\"";
+			shellcmds<<"version=\"#{md[2]}\"";
+		end
+	##}
+	elsif cmd=='unload' ##{
+		## unload
+		shellcmds << 'cmd="unload"';
+		shellcmds << "tool=\"#{tool}\"";
+		shellcmds << 'version="current"';
+	##}
+	elsif cmd=='setup'
+		# setup the app.Config
+		shellcmds << 'cmd="setup"';
+		md = /(.+)\/(.+)/.match(tool);
+		if md==nil
+			shellcmds<<"tool=\"#{tool}\"";
+			shellcmds<<'version="current"';
+			$stderr.puts "Error, version must specified when to setup an app.config";
+		else
+			shellcmds<<"tool=\"#{md[1]}\"";
+			shellcmds<<"version=\"#{md[2]}\"";
+		end
+	else ##{
+		$stderr.puts "Error, not support command(#{cmd}) ";
+		shellcmds << 'cmd=""';
+	end ##}
+	return shellcmds;
+end ##}}}
+
+def __getShellType__ ##{
+	if ENV.has_key?('SHELLTYPE')
+		return ENV['SHELLTYPE'];
+	else
+		return nil;
+	end
+end ##}
+
+def main() #{{{
+	rawArgs=ARGV
+	shell = __getShellType__;
+	if shell==nil ##{
+		puts "no SHELLTYPE set by environment";
+		return -1;
+	end ##}
+
+	optionCommands='';
+	if (shell.upcase=='BASH') ##{
+		optionCommands = __processBashCommands__(rawArgs);
+	end ##}
+
+	return -1 if optionCommands=='';
+	puts optionCommands;
+
+	return 0;
+end #}}}
+
+
+
+
+sig = main();
+exit(sig);
+# <PACKER> - app/accessory/xmlprocessor.rb
+
+class MarkDB ##{
+
+	attr_accessor :currentLevel;
+	attr :markScope;
+	## attr :markvals;
+	@@markvals={};
+
+	def db ##{
+		return @@markvals;
+	end ##}
+
+	def initialize l1mark ##{
+		@currentLevel = 1;
+		@markScope = l1mark;
+		## @markvals = {};
+	end ##}
+	def addMarkLevel m ##{
+		@markScope += "-#{m}";
+		@currentLevel += 1;
+	end ##}
+	def decMarkLevel ##{
+		@currentLevel -= 1;
+		@markScope.sub!(/-\S+/,'');
+	end ##}
+	def addValue val ##{
+		if not @@markvals.has_key?(@markScope)
+			@@markvals[@markScope] = [];
+		end
+		@@markvals[@markScope] << val;
+	end ##}
+
+end ##}
+class XmlProcessor ##{
+	## format of marks: marks[<mark>] = <level>
+	attr :markdbs;
+	attr :envvars;
+
+	def initialize
+		@markdbs = [];
+		@envvars = {};
+	end
+
+	def setenv(var,val)
+		@envvars[var.to_s] = val.to_s;
+	end
+	def flush(fn)
+		fh = File.open(fn,'w');
+		fh.write("<env>\n");
+		@envvars.each_pair do |var,val|
+			val = val+':$PATH' if var=='PATH';
+			fh.write("\t<var>#{var}</var>\n");
+			fh.write("\t<val>#{val}</val>\n");
+		end
+		fh.write("</env>\n");
+		fh.close();
+	end
+
+	def __markstart__ cnt ##{
+		ptrn = Regexp.new(/<(\w+)>/);
+		md = ptrn.match(cnt);
+		return '' if md==nil;
+		return md[1];
+	end ##}
+	def __markend__ cnt ##{
+		ptrn = Regexp.new(/<\/(\w+)>/);
+		md = ptrn.match(cnt);
+		return '' if md==nil;
+		return md[1];
+	end ##}
+	def __onelinemark__ cnt ##{
+		ptrn = Regexp.new(/<\w+>(\S+)<\/\w+>/);
+		md = ptrn.match(cnt);
+		return '' if md==nil;
+		return md[1];
+	end ##}
+
+	def loadSource f ##{{{
+		return if not File.exists?(f);
+		fp = File.open(f,'r');
+		cnts = fp.readlines();
+		md = nil;
+		cnts.each do |raw|
+			raw.chomp!;
+			mark = __markstart__(raw)
+			if mark!='' ##{
+				if md==nil
+					md=MarkDB.new(mark);
+				else
+					md.addMarkLevel(mark);
+				end
+				value = __onelinemark__(raw)
+				if value!=''
+					md.addValue(value);
+					md.decMarkLevel();
+				end
+				next; ## markstart process done
+			end ##}
+			if __markend__(raw)
+				if md.currentLevel()==1
+					@markdbs<<md;
+					md = nil;
+				else
+					md.decMarkLevel();
+				end
+				next;
+			end
+		end
+	end ##}}}
+
+	def __getmarkvals__ scope ##{{{
+		return nil if @markdbs.empty?;
+		@markdbs[0].db.each_pair do |s,vals|
+			next if s!=scope;
+			if vals.empty?
+				return nil;
+			else
+				return vals;
+			end
+		end
+	end ##}}}
+	## the markscope exists and values not empty
+	def has markscope ##{{{
+		vals = __getmarkvals__ markscope;
+		if vals!=nil
+			return true;
+		else
+			return false;
+		end
+	end ##}}}
+
+	def pop markscope ##{{{
+		vals = __getmarkvals__ markscope;
+		return '' if vals==nil;
+		return vals.shift();
+	end ##}}}
+
+end ##}
+# <PACKER> - app/accessory/__appConfigProcess__.rb
+#! /usr/bin/env ruby
+
+
+def __getShellType__ ##{
+	if ENV.has_key?('SHELLTYPE')
+		return ENV['SHELLTYPE'];
+	else
+		return nil;
+	end
+end ##}
+def __processBashCommands__ vars,cmdtype ##{{{
+	cmds = [];
+	vars.each_pair do |var,val|
+		if cmdtype=='load'
+			l = "export #{var}=#{val}"
+		else
+			if var=='PATH'
+				op = ENV['PATH'];
+				## puts "op: #{op}";
+				ov = val.sub(/:\$PATH/,'');
+				## puts "ov: #{ov}";
+				l = "export PATH=#{op.sub(ov,'')}";
+			else
+				l = "unset #{var}"
+			end
+		end
+		cmds << l;
+	end
+	return cmds.join(';');
+end ##}}}
+
+def __processline__(line,xmlp) ##{{{
+	pair = line.split('=');
+	xmlp.setenv(pair[0],pair[1]);
+	return;
+end ##}}}
+def setupconfig(f,xmlp) ##{{{
+	$stderr.puts "Entering your variable=value pairs, finished with cmd: exit";
+	$stderr.puts "format example: PATH=/home/ryan";
+	$stderr.print ">> ";
+	line = STDIN.readline().chomp;
+	while (line != 'exit')
+		__processline__(line,xmlp);
+		$stderr.print ">> ";
+		line = STDIN.readline().chomp;
+	end
+	xmlp.flush(f); ## flush to write app.config file
+	
+end ##}}}
+def main() ##{{{
+	configf = ARGV[0];
+	cmdtype = ARGV[1];
+	## puts "config: #{configf}"
+	return -1 if not File.exists?(configf);
+
+	cdir = File.dirname(File.absolute_path(__FILE__));
+	vars = {};
+	xmlp = XmlProcessor.new();
+
+	if cmdtype=='setup'
+		setupconfig(configf,xmlp);
+		return 0;
+	end
+
+	xmlp.loadSource(configf);
+	while (xmlp.has('env-var')) do
+		vars[xmlp.pop('env-var')] = xmlp.pop('env-val');
+		## puts "vars: #{vars}"
+	end
+
+	shell = __getShellType__;
+	shellCommands='';
+	if (shell.upcase=='BASH') ##{
+		shellCommands = __processBashCommands__(vars,cmdtype);
+	end ##}
+
+	puts shellCommands;
+	return 0;
+end ##}}}
+
+$toolHome = File.dirname(File.absolute_path(__FILE__));
+$LOAD_PATH << $toolHome;
+require 'xmlprocessor.rb';
+SIG = main();
+exit SIG;
+# <PACKER> - app/bin/app-v1.bash
+#! /usr/bin/env bash
+apphome=/home/ryanhunter/Projects/GitHub/rhFlow/be/v2/test/be/app
+argumentCommands=`${apphome}/accessory/__optionProcess__.rb $@`
+eval ${argumentCommands}
+echo "${cmd} tool: ${tool}, version: ${version}"
+appConfig=${apphome}/tools/${tool}/${version}/app.config
+if [ ${cmd} == '' ]; then
+	echo "Error, invalid input options: $@"
+	return 3
+fi
+if [ ${cmd} == 'setup' ]; then
+	mkdir -p ${apphome}/tools/${tool}
+	mkdir -p ${apphome}/tools/${tool}/${version}
+	touch ${apphome}/tools/${tool}/${version}/app.config
+	if [ ! -e ${apphome}/tools/${tool}/current ]; then
+		ln -s ${apphome}/tools/${tool}/${version} ${apphome}/tools/${tool}/current
+	fi
+fi
+if [ ! -e $appConfig ]; then
+	echo "Error, no app.config file found for: ${appConfig}"
+	echo "you can setup your config through: app setup ${tool}/${version}"
+	return 3
+fi
+setupCommands=`${apphome}/accessory/__appConfigProcess__.rb ${appConfig} ${cmd}`
+if [ ! -z "${setupCommands}" ]; then
+	eval $setupCommands
+fi
+echo "Success, ${cmd} completed"
+return 0
+# <PACKER> - app/bin/appShell.bash
+#! /usr/bin/env bash
+cdir=/home/ryanhunter/Projects/GitHub/rhFlow/be/v2/test/be/app/bin
+version=v1
+export SHELLTYPE=bash
+source ${cdir}/app-${version}.bash
+# <PACKER> - boot/accessory/__optionProcess__.rb
+#! /usr/bin/env ruby
+
+
+def main ##{
+
+	shell  = ARGV.shift;
+	viewarg= ARGV.shift;
+	termarg= ARGV.shift;
+	envview = 'default';
+	newterm = '1';
+	envview = viewarg if viewarg!=nil and viewarg!='';
+	newterm = termarg if termarg!=nil and termarg!='';
+
+    cmds = [];
+    if shell.upcase =='BASH'
+	    cmds << "envview=#{envview}";
+	    cmds << "newterm=#{newterm}";
+    else
+	    cmds << "set envview=#{envview}";
+	    cmds << "set newterm=#{newterm}";
+    end
+	puts cmds.join(";");
+
+	return 0;
+end ##}
+
+
+SIG = main();
+exit SIG;
+# <PACKER> - boot/bin/bootenv-v1.bash
+#! /usr/bin/env bash
+boothome=/home/ryanhunter/Projects/GitHub/rhFlow/be/v2/test/be/boot
+workhome=`realpath .`
+project=`basename ${workhome}`
+argumentCommands=`${boothome}/accessory/__optionProcess__.rb ${SHELLTYPE} $@`
+eval ${argumentCommands}
+envfile=${workhome}/__be__/${envview}.anchor
+if [ ! -e ${envfile} ]; then
+	echo "the specified env file not exists ${envfile}"
+	return 3
+fi
+nterm=/usr/bin/gnome-terminal
+echo "project: ${project}"
+termopts="--title \"[booted] ${project}\" --hide-menubar --geometry=120x40+40+40"
+setupcmd="export SHELLTYPE=bash"
+bootcmd="source ${boothome}/bin/__bootinNewTerminal__.${SHELLTYPE} ${envfile} ${workhome}"
+logincmd="${setupcmd};${bootcmd};${SHELLTYPE}"
+localcmd=${bootcmd};
+if [ ${newterm} == 1 ]; then
+	echo "booting project env with new terminal"
+	fullcmd="${nterm} ${termopts} -- ${SHELLTYPE} -c \"${logincmd}\""
+else
+	echo "booting project env with local terminal"
+	fullcmd="${localcmd}"
+fi
+echo ${fullcmd}
+eval ${fullcmd}
+# <PACKER> - boot/bin/bootShell.bash
+#! /usr/bin/env bash
+cdir=/home/ryanhunter/Projects/GitHub/rhFlow/be/v2/test/be/boot/bin
+version=v1
+export SHELLTYPE=bash
+source ${cdir}/bootenv-${version}.bash
+# <PACKER> - boot/bin/__bootinNewTerminal__.bash
+#! /usr/bin/env bash
+envfile=$1
+workhome=$2
+export PROJECT_HOME=${workhome}
+shopt -s expand_aliase
+alias app='/home/ryanhunter/Projects/GitHub/rhFlow/be/v2/test/be/app/bin/appShell.bash'
+info=`cat ${envfile} | sed -e 's/$/;/'`
+cmdl="${info}"
+eval ${cmdl}
