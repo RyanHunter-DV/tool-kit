@@ -11,7 +11,7 @@ $lib = "lib_#{$version}";
 # rhload 'lib/exceptions.rb';
 rhload "#{$lib}/mainentry.rb";
 
-e = MainEntry.new(ARGV[0]);
+e = MainEntry.new();
 $SIG = e.run();
 puts "program exists with sig: #{$SIG}";
 exit $SIG;
