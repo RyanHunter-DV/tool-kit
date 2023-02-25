@@ -6,3 +6,8 @@ specify from now on, the following contents are of file `<path/filename>`
 - packing all files within that specified path.
 - packing into a file named `<toolname>.pak`
 - 
+
+# Using Example
+```
+>> packer ./be
+```

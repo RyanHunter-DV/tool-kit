@@ -1,0 +1,17 @@
+#! /usr/bin/env ruby
+
+
+
+
+require 'rhload';
+
+$version = 'v1';
+$LOAD_PATH << File.dirname(File.absolute_path(__FILE__));
+$lib = "lib_#{$version}";
+# rhload 'lib/exceptions.rb';
+rhload "#{$lib}/mainentry.rb";
+
+e = MainEntry.new();
+$SIG = e.run();
+puts "program exists with sig: #{$SIG}";
+exit $SIG;
