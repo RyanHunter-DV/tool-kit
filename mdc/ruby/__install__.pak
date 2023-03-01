@@ -1,0 +1,2889 @@
+# <PACKER> - v2/lib_v1/options.rb,33204
+require 'optparse';
+
+class Options
+	# mode: idle,help,store,display,insert
+	# idle is doing nothing
+	attr_accessor :options;
+	attr :debug;
+	def initialize(d)
+		@debug  = d;
+		@options= {};
+		loption = OptionParser.new() do |opt|
+			opt.on('-s','--source=SOURCE','specify the source document') do |v|
+				@options[:source] = v;
+			end
+		end.parse!
+	end
+
+end
+# <PACKER> - v2/lib_v1/mdRubyReader.rb,33204
+require 'mdRubyBuilder.rb'
+require 'exceptions.rb'
+require 'codelib.rb'
+
+class MDRubyReader
+
+	attr :rawcontents;
+	attr :currentline;
+	attr :maxline;
+	attr :current; # current file object to build
+	attr :files;
+	attr :debug;
+
+	def initialize(cnts,d)
+		@rawcontents = cnts;
+		@maxline = @rawcontents.length;
+		@currentline = 1;
+		@files = {};
+		@debug = d;
+	end
+
+	def filtmark(line)
+		ptrn = Regexp.new(/\*\*(\S+)\*\*/);
+		mdata= ptrn.match(line);
+		return nil unless mdata;
+		mark = mdata[1].to_s;
+		@debug.print("detect mark:#{mark}");
+		message = "mark#{mark}".to_sym;
+		self.send(message,line);
+		return mark;
+	end
+	# when this method is called, then file mark is detected
+	# supported marks
+	def markfile(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no filename found in file mark(#{line})") unless mdata;
+		# @filename = mdata[1];
+		@debug.print("building new file: #{mdata[1]}");
+		@files[mdata[1]] = MDRubyBuilder.new(mdata[1],@debug);
+		@current = @files[mdata[1]];
+		return nil;
+	end
+	def markclass(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no classname found in line(#{line})") unless mdata;
+		@current.classname= mdata[1];
+		return nil;
+	end
+	def markmodule(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no modulename found in line(#{line})") unless mdata;
+		@current.modulename= mdata[1];
+		return nil;
+	end
+	def markrequire(line)
+		cnts = getCodeblock;
+		cnts.map!{|line| line.chomp;};
+		cnts.map!{|line| %Q|require "#{line}";|;}
+		@debug.print("require code: #{cnts}");
+		@current.requires(*cnts);
+		return;
+	end
+	def markapi(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		cnts=[];
+		raise MarkException.new("no api name found in line(#{line})") unless mdata;
+		api = mdata[1];
+		body=getCodeblock;
+		body.map!{|line| line.chomp;};
+		body.map!{|line| "\t"+line;};
+		cnts << "def #{api} "+'##{{{';
+		cnts.append(*body);
+		cnts << "end"+'##}}}';
+		cnts.map!{|line| "\t"+line;};
+		@current.code(*cnts);
+	end
+	def markfield(line)
+		cnts=[];
+		body=getCodeblock;
+		body.each do |l|
+			cnts << "\tattr_accessor :#{l};";
+		end
+		@current.code(*cnts);
+	end
+	def markdef(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		cnts=[];
+		raise MarkException.new("no api name found in line(#{line})") unless mdata;
+		api = mdata[1];
+		body=getCodeblock;
+		body.map!{|line| line.chomp;};
+		body.map!{|line| "\t"+line;};
+		cnts << "def #{api} "+'##{{{';
+		cnts.append(*body);
+		cnts << "end"+'##}}}';
+		# cnts.map!{|line| "\t"+line;};
+		@current.global(*cnts);
+	end
+	def markapio(line)
+		# api replacement, used for rbcode
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no api name found in line(#{line})") unless mdata;
+		api = mdata[1];
+		cnts=getCodeblock;
+		@current.codelib.apio(api,cnts);
+	end
+
+	def __filtOptions__(line)
+		rtns = {};
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no option found in line(#{line})") unless mdata;
+		option = mdata[1];
+		options= option.split(',');
+		options.each do |o|
+			ptrn = Regexp.new(/(\S+)\s*:\s*(\S+)/);
+			mdata= ptrn.match(o);
+			rtns[mdata[1].to_s]=mdata[2].to_s if mdata;
+		end
+		return rtns;
+	end
+	def getCodeblock
+		cnts = [];
+		@currentline += 1;
+		started = false;
+		while (@currentline <= @maxline) do
+			#@debug.print("mdfile: currentline:#{@currentline},cnt:#{@rawcontents[@currentline-1]}");
+			break if /^```/=~@rawcontents[@currentline-1] and started==true;
+			cnts << @rawcontents[@currentline-1] if started==true;
+			started=true if /^```/=~@rawcontents[@currentline-1] and started==false;
+			@currentline += 1;
+		end
+		cnts.map!{|l| l.chomp;};
+		return cnts;
+	end
+	# def markcode(line)
+	# 	options = __filtOptions__(line);
+	# 	options['indent'] = 0 unless options.has_key?('indent');
+	# 	cnts = getCodeblock;
+	# 	@current.code(cnts,:indent=>options['indent']);
+	# end
+	def markrbcode(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no codeid found in line(#{line})") unless mdata;
+		codeid = mdata[1];
+		## get all option lines for codeid
+		## cnts = readCodelibOptions;
+		processCodelib(codeid);
+	end
+
+	def processCodelib(id)
+		# process codelib
+		cb = Codelib.new(id,@debug);
+		@current.codelib = cb;
+	end
+
+	## def readCodelibOptions
+	## 	# reading from current line until next line not started with `
+	## 	cnts = [];
+	## 	@currentline += 1;
+	## 	while (@currentline <= @maxline) do
+	## 		break if @rawcontents[@currentline-1][0..0] != '`';
+	## 		cnts << @rawcontents[@currentline-1];
+	## 		@currentline += 1;
+	## 	end
+	## 	return cnts;
+	## end
+
+	def process()
+		while (@currentline <= @maxline) do
+			filtmark(@rawcontents[@currentline-1]);
+			@currentline+=1;
+		end
+	end
+
+	def build
+		@files.each_pair do |n,o|
+			o.build(); # building @contents in each self
+		end
+	end
+
+	def publish(fop)
+		@files.each_pair do |n,o|
+			o.publish(fop); # building contents into files
+		end
+	end
+end
+# <PACKER> - v2/lib_v1/mdFileBuilder.rb,33204
+class MDFileBuilder
+
+	attr_accessor :filename;
+	attr_accessor :codes;
+	attr :debug;
+	def initialize(fn,d)
+		@filename = fn;
+		@debug = d;
+		@codes = [];
+	end
+
+	def code(*lines)
+		@codes.append(*lines);
+	end
+
+	# add code for this file, will be added into @codes
+	# every time call this code method, will ad one string with "\n"
+	# sa->source in array
+	## def code(sa,**opts)
+	## 	indent=0;
+	## 	indent=opts[:indent] if opts.has_key?(:indent);
+	## 	sa.map!{|line| ("\t"*indent)+line;};
+	## 	line = sa.join("\n");
+	## 	@codes << line;
+	## end
+end
+# <PACKER> - v2/lib_v1/mdRubyBuilder.rb,33204
+require 'mdFileBuilder.rb'
+class MDRubyBuilder < MDFileBuilder
+	attr_accessor :classname;
+	attr_accessor :modulename;
+	attr_accessor :codelib;
+	attr_accessor :globals;
+	attr_accessor :requiredfiles;
+
+	attr :contents;
+	def initialize(fn,d)
+		@classname = '';
+		@modulename= '';
+		super(fn,d);
+		@contents=[];
+		@globals =[];
+		@requiredfiles=[];
+	end
+	def global(*lines)
+		@globals.append(*lines);
+	end
+	def requires(*cnts)
+		@requiredfiles.append(*cnts);
+	end
+
+	def build
+		@contents.append(*@requiredfiles);
+		@contents << "class #{@classname}" if @classname!='';
+		@contents << "module #{@modulename}" if @modulename!='';
+		@codes.each do |code|
+			splitted = code.split("\n");
+			@contents.append(*splitted);
+		end
+		@contents << "end" if @classname!='' or @modulename!='';
+		@globals.each do |code|
+			splitted = code.split("\n");
+			@contents.append(*splitted);
+		end
+		@contents.append(*@codelib.codes) if @codelib;
+		return;
+	end
+
+	def publish(fop)
+		@debug.print("building file: #{@filename} ...");
+		fop.buildfile(@filename,@contents);
+	end
+
+end
+# <PACKER> - v2/lib_v1/debugger.rb,33204
+class Debugger
+	attr_accessor :enabled;
+	def initialize(m)
+		@enabled = m;
+	end
+
+	def print(msg)
+		f = caller(1)[0];
+		puts "[DEBUG] #{f}: #{msg}" if (@enabled);
+	end
+end
+# <PACKER> - v2/lib_v1/exceptions.rb,33204
+class RunException < Exception
+	attr :message;
+	attr :signal;
+	def initialize msg,s=0
+		@message = msg;
+		@signal = s;
+		@signal = -1 if @signal==0;
+	end
+	
+	def process
+		$stderr.puts "[ERROR], #{@message}";
+		return @signal;
+	end
+end
+
+class MarkException < Exception
+	attr :signal;
+	attr :message;
+	def initialize msg
+		@message = msg;
+		@signal  = 15;
+	end
+	def process
+		$stderr.puts "[ERROR], #{@message}";
+		return @signal;
+	end
+end
+# <PACKER> - v2/lib_v1/fileOperator.rb,33204
+class FileOperator
+	attr :debug;
+	def initialize(d)
+		@debug = d;
+	end
+
+	def read(f)
+		fh = File.open(f,'r');
+		cnts = fh.readlines();
+		fh.close();
+		return cnts;
+	end
+
+	def buildfile(f,cnts)
+		p = File.dirname(File.absolute_path(f));
+		stack=[];
+		while not Dir.exists?(p) do
+			stack << p;
+			p = File.dirname(p);
+		end
+		stack.reverse!;
+		__builddir__(stack);
+		__buildfile__(f,cnts);
+	end
+	def __buildfile__(f,cnts)
+		fh = File.open(f,'w');
+		cnts.each do |line|
+			fh.write("#{line}\n");
+		end
+	end
+	
+	def __builddir__(ps)
+		ps.each do |p|
+			@debug.print("building dir: #{p}");
+			Dir.mkdir(p) unless Dir.exists?(p);
+		end
+	end
+end
+# <PACKER> - v2/lib_v1/mainentry.rb,33204
+require 'exceptions.rb'
+require 'mdRubyReader.rb'
+require 'options.rb'
+require 'fileOperator.rb'
+class MainEntry
+	attr :debug
+	attr :options;
+	def initialize(d)
+		@debug = d;
+		@options = Options.new(d).options;
+	end
+
+	def run
+		fop = FileOperator.new(@debug);
+		raise RunException.new("no source specific",3) unless @options.has_key?(:source) && @options[:source]!='';
+		cnts = fop.read(@options[:source]);
+		mr = MDRubyReader.new(cnts,@debug);
+		mr.process();
+		mr.build();
+		mr.publish(fop);
+	end
+end
+# <PACKER> - v2/lib_v1/codelib.rb,33204
+# support operations for ruby codelib
+require 'open3';
+class Codelib
+	attr :debug;
+	attr :codeid;
+	attr :codes;
+	def initialize(id,d)
+		@debug =d;
+		@codeid=id;
+		getcodes;
+	end
+
+	def getcodes
+		tmpfile = ".mdc_tmp_#{Process.pid}";
+		fh = File.open(tmpfile,'w');fh.close();
+		cmd = %Q|/local_vol1_nobackup/ryanh/Git/codelib/codelib-main/bin/cb-rb -i #{@codeid} -f #{tmpfile},1|;
+		out,err,st = Open3.capture3(cmd);
+		raise RunException.new("codelib process error(codeid: #{@codeid})",5) if st.exitstatus!=0;
+		fh = File.open(tmpfile,'r');
+		@codes = fh.readlines(); fh.close(); File.delete(tmpfile);
+		@codes.map!{|l| l.chomp;};
+		return;
+	end
+
+	def apio(api,ovrd)
+		ovrd.map!{|l| "\t"+l;};
+		ovrd.insert(0,"def #{api} ## {{{");
+		ovrd << "end ## }}}";
+		ptrn = Regexp.new("def +#{api}");
+		ncodes=[];
+		sindex=0;
+		filter=false;
+		@codes.each_with_index do |l,i|
+			if ptrn.match(l);
+				filter=true;
+				sindex=i;
+			end
+			ncodes<<l if not filter;
+			if filter
+				filter=false if l=="\tend";
+			end
+		end
+		ovrd.map!{|l| "\t"+l;};
+		# ovrd.reverse!;
+		ncodes.insert(sindex,*ovrd);
+		@codes = ncodes;
+	end
+
+end
+# <PACKER> - v2/test/lib_v1/mainentry.rb,33204
+require "pool.rb";
+require "topBuilder.rb";
+require "envBuilder.rb";
+def project(name,root) ##{{{
+	#TODO 
+	name=name.to_s;
+	TopBuilder.setup(name,File.join(root,'tb'));
+	EnvBuilder.setup(name,File.join(root,'env'));
+end##}}}
+require 'exceptions.rb'
+require 'mdRubyReader.rb'
+require 'options.rb'
+require 'fileOperator.rb'
+class MainEntry
+	attr :debug
+	attr :options;
+	def initialize(d)
+		@debug = d;
+		@options = Options.new(d).options;
+	end
+
+	def run ## {{{
+		# code of run here
+		# 1.load user source file, call loadSource(xxx)
+		loadSource(@options[:source]);
+		#TODO, TopBuilder need to be created
+		TopBuilder.finalize();
+		TopBuilder.publish();
+		# publish env
+		EnvBuilder.finalize();
+		EnvBuilder.publish();
+		# tb/test builders here
+		
+	end ## }}}
+end
+# <PACKER> - v2/test/lib_v1/envBuilder.rb,33204
+require "debugger.rb";
+require "svEnv.rb";
+module EnvBuilder
+	attr_accessor :envs;
+	attr_accessor :debug;
+	attr_accessor :root;
+	attr_accessor :project;
+	def self.setup(p,r) ##{{{
+		@project = p;
+		@root    = r;
+	end##}}}
+	def self.envs ##{{{
+		@envs={} if @envs==nil;
+		return @envs;
+	end##}}}
+	def self.debug ##{{{
+		@debug = Debugger.new(@options[:debug]) if @debug==nil;
+		return @debug;
+	end##}}}
+	def finalize ##{{{
+		@envs.each_value do |e|
+			e.finalize();
+		end
+	end##}}}
+	def self.publish ##{{{
+		@envs.each_value do |e|
+			e.publish();
+		end
+	end##}}}
+end
+def env(n,t,&block) ##{{{
+	sve = SVEnv.new(n,t,EnvBuilder.debug);
+	sve.instance_eval &block;
+	EnvBuilder.envs[n] = sve;
+end##}}}
+# <PACKER> - v2/test/lib_v1/svEnv.rb,33204
+require "svSeqr.rb";
+require "svSeq.rb";
+require "svClass.rb";
+require "svConfig.rb";
+require "svVipInstance.rb";
+class SVEnv < SVClass
+	attr_accessor :vips;
+	attr_accessor :config;
+	attr_accessor :vseqr;
+	attr_accessor :vseq;
+	def initialize(r,n,t,d) ##{{{
+		cn = "#{$project.capitalize}#{n.capitalize}#{t.to_s.capitalize}Env"
+		@type = t.to_sym;
+		super(r,cn,d,:component);
+		@vips = {};
+	end##}}}
+	def vip(n,**opts) ##{{{
+		return unless opts.has_key?(:as);
+		vbase = @top.find(n);
+		raise RunException.new("no vip definition found in pool",3) if vbase==nil;
+		vinst = SVVipInstance.new(opts[:as],vbase,@debug);
+		setm = opts[:as].to_sym;
+		@vips[setm.to_s] = vinst;
+		self.define_singleton_method setm do
+			return vinst;
+		end
+	end##}}}
+	def config(&block) ##{{{
+		cn = "#{@classname}Config";
+		@config = SVConfig.new(@rootpath,cn,@debug);
+		@config.instance_eval &block;
+	end##}}}
+	def vseqr(**pairs) ##{{{
+		@vseqr = SVVseqr.new(@rootpath,@classname+"VSeqr",@debug) if @vseqr==nil;
+		@vseq  = SVVseq.new(@rootpath,@classname+"Vseq",@debug) if @vseq==nil;
+		@vseqr.connect(**pairs);
+	end##}}}
+	def finalize ##{{{
+		# setup vip configurations
+		vips.each_pair do |n,o|
+			m = SVMethod.new(:func,"setup#{n.capitalize}",@classname,'void','','local');
+			cnts = o.code(:config); cnts.map!{|line| "\t"+line;};
+			m.body(cnts.join("\n"));
+			# register to this class's methods
+			@methods["setup#{n.capitalize}"] = m;
+			# call in build phase
+			@methods['build_phase'].body("\tsetup#{n.capitalize}();");
+		end
+		
+		# setup vseqr connections in connect phase
+		cnts = @vseqr.code(:connection)
+		m=SVMethod.new(:func,"connectionSeqrs",@classname,'void','','local');
+		cnts.map!{|line| "\t"+line;};
+		m.body(cnts.join("\n"));
+		@methods["connectionSeqrs"] = m;
+		@methods['connect_phase'].body("\tconnectionSeqrs();");
+		return;
+	end##}}}
+	def publish ##{{{
+		publishSubs;
+		@debug.print("publishing #{@classname} ...");
+		cnts = [];
+		cnts.append(*filemacro);
+		cnts.append(code(:head));
+		cnts.append(code(:body));
+		cnts.append(*filemacroend);
+		buildfile(cnts);
+	end##}}}
+	def publishSubs ##{{{
+		@config.publish;
+		@vseq.publish;
+		@vseqr.publish;
+	end##}}}
+	def headCode ##{{{
+		cnts=[];
+		# class declareation
+		cnts << "class #{@classname} extends uvm_env;";
+		# vip, config and other fields in env
+		cnts.append(*fieldsDeclareCode);
+		# builtins like uvm_utils
+		cnts.append(*utilsCode);
+		@methods.each_value do |m|
+			cnts << "\t"+m.code(:prototype);
+		end
+		cnts << "endclass"
+		return cnts;
+	end##}}}
+	def utilsCode ##{{{
+		cnts=[];
+		cnts << %Q|`uvm_component_utils_begin(#{@classname})|;
+		@fields.each_value do |f|
+			cnts << "\t"+f.code(:utils);
+		end
+		@vips.each_key do |k|
+			cnts << "\t`uvm_field_object(#{k},UVM_ALL_ON)";
+		end
+		cnts << "\t`uvm_field_object(vseqr,UVM_ALL_ON)";
+		cnts << %Q|`uvm_component_utils_end|;
+		cnts.map!{|line| "\t"+line;};
+		return cnts;
+	end##}}}
+	def fieldsDeclareCode ##{{{
+		cnts = [];
+		@vips.each_value do |v|
+			cnts << v.code(:instance);
+		end
+		@fields.each_value do |f|
+			cnts << f.code(:instance);
+		end
+		cnts << @config.code(:instance);
+		cnts << @vseqr.code(:instance);
+		cnts.map!{|line| "\t"+line;};
+		return cnts;
+	end##}}}
+	def bodyCode ##{{{
+		cnts = [];
+		@methods.each_value do |m|
+			cnts.append(*@methods.code(:body));
+		end
+		return cnts;
+	end##}}}
+end
+# <PACKER> - v2/test/lib_v1/svVseqr.rb,33204
+require "svClass.rb";
+class SVVseqr < SVClass
+	attr_accessor :pairs;
+	def initialize(r,cn,d) ##{{{
+		super(r,cn,d,:component);
+		@pairs = {};
+		setupfields;
+		setupselect;
+	end##}}}
+	def setupfields ##{{{
+		f = SVField.new(:aarray,'uvm_sequencer_base','seqr','string')
+		@fields['seqr'] = f;
+	end##}}}
+	def setupselect ##{{{
+		m = SVMethod.new(:func,'select',@classname,'uvm_sequencer_base','string flag');
+		lines = <<-CODE.gsub(/^\s*-/,"\t")
+			-return seqr[flag];
+		CODE
+		m.body(lines);
+		@methods['select'] = m;
+	end##}}}
+	def connect(**pairs) ##{{{
+		# to setup connection of vseqr and real seqr
+		pairs.each_pair do |flag,target|
+			@pairs[flag] = target;
+		end
+	end##}}}
+	def publish ##{{{
+		cnts = [];
+		cnts.append(*filemacro);
+		cnts.append(code(:head));
+		cnts.append(code(:body));
+		cnts.append(*filemacroend);
+		buildfile(cnts);
+	end##}}}
+	def headCode ##{{{
+		cnts = [];
+		cnts << "class #{@classname} extends uvm_sequencer;";
+		## builtins
+		cnts << %Q|\t`uvm_component_utils_begin(#{@classname})|;
+		cnts << %Q|\t`uvm_component_utils_end|;
+		
+		@fields.each_value do |f|
+			cnts << "\t#{f.code(:instance)}";
+		end
+		@methods.each_value do |m|
+			cnts << "\t#{m.code(:prototype)}";
+		end
+		cnts << 'endclass';
+		return cnts;
+	end##}}}
+	def bodyCode ##{{{
+		cnts=[];
+		@methods.each_value do |m|
+			cnts.append(*m.code(:body));
+		end
+		return cnts;
+	end##}}}
+	def connectionCode ##{{{
+		cnts = [];
+		@pairs.each_pair do |s,t|
+			cnts << %Q|vseqr.seqr["#{s}"] = #{t};|;
+		end
+		return cnts;
+	end##}}}
+end
+# <PACKER> - v2/test/lib_v1/svVseq.rb,33204
+require "svClass.rb";
+class SVVseq < SVClass
+	attr_accessor :fields;
+	def initialize(r,cn,d) ##{{{
+		super(r,cn,d,:object);
+		@fields={};
+		setupfields;
+		setupmethods;
+	end##}}}
+	def setupfields ##{{{
+		f = SVField.new(:aarray,'string','seqs','uvm_sequence');
+		@fields['seqs'] = f;
+	end##}}}
+	def setupmethods ##{{{
+		setupset;
+		setupbody;
+	end##}}}
+	def setupset ##{{{
+		m=SVMethod.new(:func,'set',@classname,'void','uvm_sequence item,string flag','virtual');
+		lines = <<-CODE.gsub(/^\s*\./,'')
+			.seqs[item] = flag;
+			.return;
+		CODE
+		m.body(lines);
+		@methods['set'] = m;
+	end##}}}
+	def setupbody ##{{{
+		m = SVMethod.new(:task,'body',@classname,'','','virtual');
+		
+		lines = <<-CODE.gsub(/^\s*-/,'')
+			-foreach(seqs[s]) begin
+			-	s.start(p_sequencer.select(seqs[s]));
+			-end
+		CODE
+		m.body(lines);
+		@methods['body'] = m;
+	end##}}}
+	def publish ##{{{
+		cnts = [];
+		cnts.append(*filemacro);
+		cnts.append(code(:head));
+		cnts.append(code(:body));
+		cnts.append(*filemacroend);
+		buildfile(cnts);
+	end##}}}
+	def headCode ##{{{
+		cnts = [];
+		cnts << "class #{@classname} extends uvm_sequence;";
+		## builtins
+		cnts << %Q|\t`uvm_declare_p_sequencer(#{@pseqr})|;
+		cnts << %Q|\t`uvm_object_utils_begin(#{@classname})|;
+		cnts << %Q|\t`uvm_object_utils_end|;
+		
+		@fields.each_value do |f|
+			cnts << "\t#{f.code(:instance)}";
+		end
+		@methods.each_value do |m|
+			cnts << "\t#{m.code(:prototype)}";
+		end
+		cnts << 'endclass';
+		return cnts;
+	end##}}}
+	def bodyCode ##{{{
+		cnts=[];
+		@methods.each_value do |m|
+			cnts.append(*m.code(:body));
+		end
+		return cnts;
+	end##}}}
+	def instanceCode ##{{{
+		return "#{@classname} vseq;";
+	end##}}}
+end
+# <PACKER> - v2/test/lib_v1/svVipInstance.rb,33204
+class SVVipInstance
+	attr_accessor :instname;
+	attr_accessor :base;
+	attr_accessor :debug;
+	attr_accessor :configs;
+	attr_accessor :apis;
+	def initialize(in,b,d) ##{{{
+		@instname = in.to_s;
+		@base = b;
+		@debug= d;
+		@configs={};
+		@apis={};
+	end##}}}
+	def config(fn,ovrd) ##{{{
+		@configs[fn.to_s] = ovrd.to_s;
+		
+	end##}}}
+	def api(n,args) ##{{{
+		@apis[n.to_s] = args.to_s;
+	end##}}}
+	def code(u) ##{{{
+		# usage can be, :instance, :config
+		message = "#{u}Code".to_sym;
+		return self.send(message);
+	end##}}}
+	def instanceCode ##{{{
+		# This API to return instance code for vip
+		# currently not specially support the parameter mapping
+		l = "#{@base.classname} #{@inst};"
+		return l;
+	end##}}}
+	def configCode ##{{{
+		cnts = [];
+		@configs.each_pair do |local,ovrd|
+			line = "#{@instname}.#{local} = ovrd;"
+			cnts << line;
+		end
+		@apis.each_pair do |local,ovrd|
+			line = "#{@instname}.#{local}(#{ovrd});"
+			cnts << line;
+		end
+		return cnts;
+	end##}}}
+end
+# <PACKER> - v2/test/lib_v1/svVip.rb,33204
+require "pool.rb";
+require "svInterface.rb";
+def interface(n,&block) ##{{{
+	svi = SVInterface.new(n);
+	svi.instance_eval &block;
+	Pool.register(svi,:interface); #TODO, need register in pool.
+end##}}}
+# <PACKER> - v2/test/lib_v1/svConfig.rb,33204
+class SVConfig < SVClass
+	def initialize(r,cn,d) ##{{{
+		super(r,cn,d,:object)
+		builtinConfigs
+	end##}}}
+	def builtinConfigs ##{{{
+		# setup builtin configs, both for vip/env
+		field :enum,'uvm_active_passive_enum','isActive',"UVM_ACTIVE","UVM_ALL_ON"
+	end##}}}
+	def publish ##{{{
+		cnts = [];
+		cnts.append(*filemacro);
+		cnts.append(*code(:head));
+		cnts.append(*code(:body));
+		cnts.append(*filemacroend);
+		buildfile(cnts);
+	end##}}}
+	def headCode ##{{{
+		cnts = [];
+		cnts << "class #{@classname} extends uvm_object;";
+		
+		## builtins
+		cnts << %Q|\t`uvm_object_utils_begin(#{@classname})|;
+		cnts << %Q|\t`uvm_object_utils_end|;
+		
+		@fields.each_value do |f|
+			cnts << "\t#{f.code(:instance)}";
+		end
+		@methods.each_value do |m|
+			cnts << "\t#{m.code(:prototype)}";
+		end
+		cnts << 'endclass';
+		return cnts
+	end##}}}
+	def bodyCode ##{{{
+		cnts=[];
+		@methods.each_value do |m|
+			cnts.append(*m.code(:body));
+		end
+		return cnts;
+	end##}}}
+	def instanceCode ##{{{
+		return "#{@classname} config;";
+	end##}}}
+end
+# <PACKER> - v2/test/lib_v1/svClass.rb,33204
+require "svFile.rb";
+class SVClass < SVFile
+	attr_accessor :fields;
+	attr_accessor :methods;
+	attr_accessor :classname;
+	attr_accessor :uvmctype;
+	def initialize(r,cn,d,t=:component) ##{{{
+		fn = cn;fn[0..0].downcase!;
+		super(r,fn,d);
+		@classname = cn;
+		@fields = {};
+		@methods= {};
+		@uvmctype=t;
+		constructMethods;
+		phaseMethods if @uvmctype==:component;
+	end##}}}
+	def constructMethods ##{{{
+		# setup sv constructors
+		args = '';
+		if @uvmctype==:component
+			args=%Q|string name="#{@classname}",uvm_component parent=null|;
+		elsif @uvmctype==:object
+			args=%Q|string name="#{@classname}"|;
+		else
+			args='';
+		end
+		m = SVMethod.new(:func,'new',@classname,'',args);
+		if @uvmctype==:component
+			m.body("\tsuper.new(name,parent);");
+		elsif @uvmctype==:object
+			m.body("\tsuper.new(name);")
+		end
+		@methods['new'] = m;
+	end##}}}
+	def phaseMethods ##{{{
+		args='uvm_phase phase';
+		m = SVMethod.new(:func,'build_phase',@classname,'void',args,'virtual');
+		m.body("\tsuper.build_phase(phase);");
+		@methods['build_phase'] = m;
+		
+		m = SVMethod.new(:func,'connect_phase',@classname,'void',args,'virtual');
+		m.body("\tsuper.connect_phase(phase);");
+		@methods['connect_phase'] = m;
+		
+		m = SVMethod.new(:task,'run_phase',@classname,args,'virtual');
+		m.body("\tsuper.run_phase(phase);");
+		@methods['run_phase'] = m;
+		return;
+	end##}}}
+	def field(*args) ##{{{
+		t = filterType(args[0]); # bit[3:0] -> int
+		f = SVField.new(t,@debug,*args);
+		@fields[vn] = f;
+	end##}}}
+	def filterType(ft) ##{{{
+		t = nil;
+		ptrn = Regexp.new(/ *\[.*\]/);
+		ft.sub!(ptrn,'');
+		if ft=='bit' or ft=='int' or ft=='logic'
+			t=:int;
+		else
+			t=ft.to_sym;
+		end
+		return t;
+	end##}}}
+	def func(n,c,r,a,q='',&block) ##{{{
+		m = SVMethod.new(:func,n,c,r,a,q,@debug);
+		m.body(block.call);
+		@methods[n.to_s] = m;
+	end##}}}
+	def task(n,c,a,q='',&block) ##{{{
+		m = SVMethod.new(:task,n,c,nil,a,q,@debug);
+		m.body(block.call);
+		@methods[n.to_s] = m;
+	end##}}}
+end
+# <PACKER> - v2/test/lib_v1/svFile.rb,33204
+class SVFile
+	attr_accessor :debug;
+	attr_accessor :rootpath;
+	attr_accessor :filename;
+	def initialize(r,fn,d,ext='.svh') ##{{{
+		@rootpath = r;
+		@filename = "#{fn}#{ext}";
+		@debug = d;
+	end##}}}
+	def code(u) ##{{{
+		message = "#{u}Code".to_sym;
+		return self.send(message);
+	end##}}}
+	def buildfile(cnts) ##{{{
+		@debug.print("buildfile: #{File.join(@rootpath,@filename)}");
+		fh = File.open(File.join(@rootpath,@filename),'w');
+		cnts.each do |line|
+			fh.write("#{line}\n");
+		end
+	end##}}}
+	def filemacro ##{{{
+		m = @filename.sub(/\./,'__');
+		cnts = [];
+		cnts << '`ifndef '+m;
+		cnts << '`define '+m;
+		return cnts;
+	end##}}}
+	def filemacroend ##{{{
+		return ["\n`endif"];
+	end##}}}
+end
+# <PACKER> - v2/test/lib_v1/svmethod.rb,33204
+class SVMethod
+	attr_accessor :type;
+	attr_accessor :name;
+	attr_accessor :classname;
+	attr_accessor :rtn;
+	attr_accessor :args;
+	attr_accessor :qualifiers;
+	attr_accessor :procedures;
+	attr_accessor :debug;
+	def initialize(t,n,c,r,a,q='',d) ##{{{
+		# t->type, :func, :task
+		# n->name of method
+		# c->classname
+		# r->return type for function only
+		# a->args
+		# q->qualifiers
+		@type = t.to_sym;
+		@name = n.to_s;
+		@classname=c.to_s;
+		@rtn  = r.to_s;
+		@args = a.to_s;
+		@qualifiers=q;
+		@procedures=[];
+		@debug = d;
+	end##}}}
+	def body(line) ##{{{
+		# line here can be multiple sv code lines with one string.
+		# or a single sv code line with one string.
+		@procedures << line;
+	end##}}}
+	def code(u) ##{{{
+		# u->usage, of :prototype, :body
+		message = "#{u}Code";
+		return self.send(message);
+	end##}}}
+	def prototypeCode ##{{{
+		h = 'extern';
+		h += " #{@qualifiers}" if @qualifiers;
+		if @type==:func
+			h+=" function #{@rtn}";
+		else
+			h+=" task";
+		end
+		h+=" #{name}(#{@args});";
+		return h;
+	end##}}}
+	def bodyCode ##{{{
+		cnts = [];
+		h = "";
+		if @type==:func
+			h+="function #{@rtn}";
+		else
+			h+="task";
+		end
+		h+="#{@classname}::#{@name}(#{@args});";
+		cnts << h;
+		@procedures.each do |b|
+			bs = b.split("\n");
+			bs.map!{|l| "\t"+l;};
+			cnts.append(*bs);
+		end
+		if @type==:func
+			cnts << "endfunction"
+		else
+			cnts << "endtask"
+		end
+		return cnts;
+	end##}}}
+end
+# <PACKER> - v2/test/lib_v1/svField.rb,33204
+class SVField
+	attr_accessor :debug;
+	attr_accessor :type;
+	attr_accessor :flag;
+	def initialize(t,d,*args) ##{{{
+		@type = t.to_sym;
+		@debug= d;
+		@flag = args.pop;
+		message = "register#{@type}".to_sym;
+		self.send(message,*args);
+	end##}}}
+	def registerint(ft,va,default='') ##{{{
+		# ft->fieldtype, used to declare the sv field.
+		# va->varname,
+		# default->the default value, default is ''
+		@fieldtype = ft.to_s;
+		@name = va.to_s;
+		@default= default;
+	end##}}}
+	def registerenum(ft,va,default='') ##{{{
+		@fieldtype = ft;
+		@name = va.to_s;
+		@default= default;
+	end##}}}
+	def registerreal(ft,va,default='') ##{{{
+		@fieldtype=ft;
+		@name=va.to_s;
+		@default=default;
+	end##}}}
+	def registerqueue(ft,va) ##{{{
+		@fieldtype=ft;
+		@name="#{va}[$]";
+		@default='';
+	end##}}}
+	def registersarray(ft,va,s) ##{{{
+		# s->size, the size of array
+		@fieldtype=ft;
+		@name="#{va}[#{s}]"
+		@default='';
+	end##}}}
+	def registerdarray(ft,va) ##{{{
+		@fieldtype=ft;
+		@name="#{va}[]"
+		@default='';
+	end##}}}
+	def registeraarray(ft,va,it) ##{{{
+		# it->index type
+		@fieldtype=ft;
+		@name="#{va}[#{it}]"
+		@default=''
+	end##}}}
+	def code(u) ##{{{
+		message = "#{u}Code".to_sym;
+		return self.send(message);
+	end##}}}
+	def instanceCode ##{{{
+		l = "#{@fieldtype} #{@name};";
+		return l;
+	end##}}}
+	def utilsCode ##{{{
+		l = "`uvm_field_#{@type}(";
+		if @type==:enum
+			l+="#{@fieldtype},";
+		end
+		l+="#{@name},#{@flag})";
+		return l;
+	end##}}}
+	def refCode ##{{{
+		return @name;
+	end##}}}
+end
+# <PACKER> - v2/test/lib_v1/topBuilder.rb,33204
+module TopBuilder
+	attr_accessor :top;
+end
+# <PACKER> - v2/test/lib_v1/top.rb,33204
+class Top
+	def interface(it,name) ##{{{
+		intf = Pool.find(it,:interface);
+		raise RunException.new("no interface(#{it}) declared",3) if intf==nil;
+		
+	end##}}}
+end
+def top(project,&block) ##{{{
+	top = Top.new(project);
+	top.instance_eval &block;
+	TopBuilder.top = top;
+end##}}}
+# <PACKER> - v2/test/lib_v1/pool.rb,33204
+module Pool
+	attr_accessor :pool;;
+	def self.register(o,t) ##{{{
+		@pool={} unless @pool.is_a?(Hash);
+		@pool[t.to_sym]=[] unless @pool.has_key?(t.to_sym);
+		@pool[t.to_sym] << o;
+	end##}}}
+	def self.find(n,t) ##{{{
+		t = t.to_sym;
+		return nil unless @pool.has_key?(t);
+		@pool[t].each do |o|
+			return o if (o.name == n.to_s);
+		end
+		return nil;
+	end##}}}
+end
+# <PACKER> - v2/test/lib_v1/debugger.rb,33204
+class Debugger
+	attr_accessor :enabled;
+	def initialize(m)
+		@enabled = m;
+	end
+
+	def print(msg)
+		f = caller(1)[0];
+		puts "[DEBUG] #{f}: #{msg}" if (@enabled);
+	end
+end
+# <PACKER> - v2/test/test.rb,33277
+#! /usr/bin/env ruby
+a =[0,2]
+a.each_with_index do |l,i|
+	puts "l:#{l},i:#{i}"
+end
+# <PACKER> - v2/test/utb,33277
+#! /usr/bin/env ruby
+
+require 'rhload';
+
+$version = 'v1';
+$toolhome = File.dirname(File.absolute_path(__FILE__));
+# $toolhome = File.join(File.dirname($bin),'ruby');
+$lib = "lib_#{$version}";
+$LOAD_PATH << File.join($toolhome,$lib);
+
+rhload "debugger.rb";
+# rhload "exceptions.rb";
+# rhload "options.rb";
+# rhload "fileoperator.rb";
+# rhload "database.rb";
+rhload "mainentry.rb";
+
+debug=Debugger.new(false);
+e = MainEntry.new(debug);
+$SIG = e.run();
+debug.print("program exists with sig: #{$SIG}");
+exit $SIG;
+# <PACKER> - v2/test/test.md,33204
+# Overview
+utb, short of Unit level Testbench Builder.
+
+## Feature list
+### tbtop building
+- build the `top.sv` file which is the top testbench module declaring interfaces and connecting with DUT.
+- declaring an interface that can be published and instantiated by others.
+### env building
+- build unit level env, has interface uvcs, refmodule, scoreboard, and default configurations;
+- build tb level env, has clock/reset uvcs, and testbase;
+### tests building
+- variaty of tests
+## Use Case
+### commands supported to setup an env
+#### config
+*example*
+```
+vip ... do
+	config do
+		field 'int','va','0'
+		field 'queue','int','vb'
+	end
+end
+```
+#### vip
+*example*
+```
+env ... do
+
+	vip 'RhAhb5Vip',:as=>'mst'
+	mst.config 'field0',config.field2
+	mst.api 'api0',"#{config.fiel3},4"
+end
+```
+#### vseqr, command for vseq/vseqr setup
+*example*
+```
+env ... do
+	vseqr 'seqrflag' => 'mst.seqr'
+end
+```
+
+### commands supported to setup tbtop
+#### declaring an interface
+users can use the 'interface' command to declare a new interface which can be published, but in utb, it's only used to declare interface in tbtop.
+*example*:
+```
+interface 'RhAhb5If' do
+	param 'AW'=>'32'
+	input 'HCLK'
+	input 'IB','2'
+	output 'A','3'
+	signal 'sigA','32'
+end
+```
+detailed declaration fo this command are here: [[#global interface method]]
+
+#### top in global scope
+*example*
+```
+top 'projectname' do
+	commands within top ...
+end
+```
+details in [[#Top]] , #TODO
+#### declare an interface in top scope
+*example*
+```
+top ... do
+	interface 'RhAhb5If','mIf(clk,rstn)'
+end
+```
+details in [[#Top]], #TODO 
+#### dut in top scope
+*example*
+```
+top ... do
+	dut 'DUTModule','udut' do
+		connect(
+			'iClk'=>tbClk
+			'sigA'=>mIf.signalCode('sigA',:full,3,0)
+		)
+	end
+end
+```
+
+## Test Scenarios
+For testing the tool. #TBD 
+
+
+# Architecture
+Brief description of the design architecture. And links of below chapters for details.
+## contents of classes
+- [[#MainEntry]]
+- [[#EnvBuilder]]
+- 
+## major procedures
+1. get options from command line, using options.rb as template, by `MainEntry`
+2. reading source file, the entry is `top.rh`, which will load all other files
+3. basic commands such as 'env','tbtop' etc, are located globally in main scope
+4. setup and arrange all user sources through a call of `finalize`
+5. building files and directories for each part through a `publish` call.
+## env builder
+- define a global method `env`, by which can build the env codes
+- included all env related codes
+### setup vips
+- vip instantiating, and configuration
+users can create and setup a vip instance of that env like:
+```
+env ... do
+	vip 'vipname',:as=>'instname'
+	instname.config('field0',config.field0)
+end
+```
+A vip call is available in `SVEnv`, details in [[#setup a vip]]
+
+### env configurations
+users can setup an env configuration through the `config` api, and with a block being called within the `SVConfig` class. This inputs should support the tool to generate:
+- config instantiated in env, the declaration and create in env
+- config table being published with all provided config fields and methods.
+#### declare config fields
+different field types maybe need different apis to setup those fields, types are:
+- :int, for bit, logic, int ... those integer types, use uvm_field_int
+- :real, for those time, real ... for those real types, use uvm_field_real
+- :queue, for those queue types, use uvm_field_queue_*
+- :sarray, :darray, :aarray, :enum
+using the `field` api to declare a config filed, and specifying with 'field type'. For example:
+```
+config ... do
+	field 'int','va','default'
+	field 'queue','int','vb','default'
+	field 'enum','typeOfEnum','vc','default'
+	func xxx do
+		<<-CODE.gsub(/\s*-/,'')
+			-xxxx
+		CODE
+	end
+end
+```
+#### declare config methods
+declare a method that can operate configurations through different methods, mostly functions.
+#TBD 
+
+### building checkers
+[[#SVRefmodule]] and [[#SVScoreboard]] used to generate the checker part of env. The refmodule is a complicate
+module for every dv env, it will only build a shell for now, like:
+```systemverilog
+class *refmodule* extends uvm_component;
+	builtin information...
+```
+details in: [[#SVRefmodule]]
+The scoreboard are simply combined with several common scoreboard client and a scoreboard top.
+*user inputs example*:
+```ruby
+env ... do
+	scoreboard 'instname','transtype','expsrcport','actsrcport'
+	scoreboard 'regCtrl','ahb5ReqTrans','refm.regexp','regCtrl.rspPort'
+end
+```
+By calling the scoreboard which is within `EnvBuilder` scope:
+- firstly it will create a `SVScoreboard` if it didn't created before.
+- And then will add a client by calling `SVScoreboard`'s addclient API.
+- call `SVEnv`'s API to add the connection code into unit env's connect phase.
+
+## tbtop builder
+
+#TBD 
+# utb shell
+**file** `utb`
+**rbcode** `toolshell`
+
+# MainEntry
+**file** `lib_v1/mainentry.rb`
+**require**
+```
+pool.rb
+topBuilder.rb
+envBuilder.rb
+```
+**rbcode** `mainentry`
+**apio** `run`
+```ruby
+# code of run here
+# 1.load user source file, call loadSource(xxx)
+loadSource(@options[:source]);
+#TODO, TopBuilder need to be created
+TopBuilder.finalize();
+TopBuilder.publish();
+# publish env
+EnvBuilder.finalize();
+EnvBuilder.publish();
+# tb/test builders here
+
+```
+
+## project method for global
+**def** `project(name,root)`
+use this project command to setup the name of the project and root path for utb building (mostly `*/verif/`)
+```ruby
+#TODO 
+name=name.to_s;
+TopBuilder.setup(name,File.join(root,'tb'));
+EnvBuilder.setup(name,File.join(root,'env'));
+```
+
+# EnvBuilder
+**file** `lib_v1/envBuilder.rb`
+**require**
+```
+debugger.rb
+svEnv.rb
+```
+**module** `EnvBuilder`
+**field**
+```
+envs
+debug
+root
+project
+```
+
+## EnvBuilder::setup
+To setup project information for EnvBuilder.
+**api** `self.setup(p,r)`
+```ruby
+@project = p;
+@root    = r;
+```
+## envs
+- given the attr of envs hash, which stores different env objects
+- format of envs: `envs[<extra partition name>] = <SVEnv object>`
+**api** `self.envs`
+```
+@envs={} if @envs==nil;
+return @envs;
+```
+## debug features
+**api** `self.debug`
+```
+@debug = Debugger.new(@options[:debug]) if @debug==nil;
+return @debug;
+```
+## finalizing
+**api** `finalize`
+```ruby
+@envs.each_value do |e|
+	e.finalize();
+end
+```
+## publish whole envs
+**api** `self.publish`
+```ruby
+@envs.each_value do |e|
+	e.publish();
+end
+```
+
+## global env method
+this is being called directly from user source, to declare an env.
+- args:
+	- n->name, extra name partition;
+	- t->type, one of :unit or :tb, which will internally setup different builtins
+	- block, being executed within `SVEnv`
+- build a new `SVEnv` object in `EnvBuilder`;
+- instance evaluation of the given block;
+**def** `env(n,t,&block)`
+```ruby
+sve = SVEnv.new(n,t,EnvBuilder.debug);
+sve.instance_eval &block;
+EnvBuilder.envs[n] = sve;
+```
+- [[#SVEnv]]
+
+# SVEnv
+**file** `lib_v1/svEnv.rb`
+**require**
+```
+svSeqr.rb
+svSeq.rb
+svClass.rb
+svConfig.rb
+svVipInstance.rb
+```
+**class** `SVEnv < SVClass`
+**field**
+```
+vips
+config
+vseqr
+vseq
+```
+## constructor
+**api** `initialize(r,n,t,d)`
+```ruby
+cn = "#{$project.capitalize}#{n.capitalize}#{t.to_s.capitalize}Env"
+@type = t.to_sym;
+super(r,cn,d,:component);
+@vips = {};
+```
+## setup a vip
+- args:
+	- n->typename, the vip type name, used to find from top.
+	- :as=>'instname', specify the instance name for this env.
+- find the `SVVip` instance named as 'n'
+- create a new `SVVipInstance` object, with instance name, and the `SVVip` object.
+- define a method named as the 'instname', which will return that `SVVipInstance` object.
+**api** `vip(n,**opts)`
+```ruby
+return unless opts.has_key?(:as);
+vbase = @top.find(n);
+raise RunException.new("no vip definition found in pool",3) if vbase==nil;
+vinst = SVVipInstance.new(opts[:as],vbase,@debug);
+setm = opts[:as].to_sym;
+@vips[setm.to_s] = vinst;
+self.define_singleton_method setm do
+	return vinst;
+end
+```
+details: [[#SVVipInstance]]
+## setup env conifgurations
+for this api in env, only a block is required to setup fields and methods in `SVConfig`, the class name are determined already with format of env classname with 'Config' suffix.
+**api** `config(&block)`
+```ruby
+cn = "#{@classname}Config";
+@config = SVConfig.new(@rootpath,cn,@debug);
+@config.instance_eval &block;
+```
+details: [[#SVConfig]]
+## setup vseqr/vseq
+**api** `vseqr(**pairs)`
+```ruby
+@vseqr = SVVseqr.new(@rootpath,@classname+"VSeqr",@debug) if @vseqr==nil;
+@vseq  = SVVseq.new(@rootpath,@classname+"Vseq",@debug) if @vseq==nil;
+@vseqr.connect(**pairs);
+```
+
+## finalize
+While in finalize, following actions should be done:
+- setup methods for vips configuration.
+- setup methods to setup vseqr pairs connections.
+**api** `finalize`
+```ruby
+# setup vip configurations
+vips.each_pair do |n,o|
+	m = SVMethod.new(:func,"setup#{n.capitalize}",@classname,'void','','local');
+	cnts = o.code(:config); cnts.map!{|line| "\t"+line;};
+	m.body(cnts.join("\n"));
+	# register to this class's methods
+	@methods["setup#{n.capitalize}"] = m;
+	# call in build phase
+	@methods['build_phase'].body("\tsetup#{n.capitalize}();");
+end
+
+# setup vseqr connections in connect phase
+cnts = @vseqr.code(:connection)
+m=SVMethod.new(:func,"connectionSeqrs",@classname,'void','','local');
+cnts.map!{|line| "\t"+line;};
+m.body(cnts.join("\n"));
+@methods["connectionSeqrs"] = m;
+@methods['connect_phase'].body("\tconnectionSeqrs();");
+return;
+```
+## publish
+Called by `EnvBuilder`, to publish all components within this env.
+**api** `publish`
+```ruby
+publishSubs;
+@debug.print("publishing #{@classname} ...");
+cnts = [];
+cnts.append(*filemacro);
+cnts.append(code(:head));
+cnts.append(code(:body));
+cnts.append(*filemacroend);
+buildfile(cnts);
+```
+**api** `publishSubs`
+```ruby
+@config.publish;
+@vseq.publish;
+@vseqr.publish;
+```
+## head code generated for publish
+**api** `headCode`
+```ruby
+cnts=[];
+# class declareation
+cnts << "class #{@classname} extends uvm_env;";
+# vip, config and other fields in env
+cnts.append(*fieldsDeclareCode);
+# builtins like uvm_utils
+cnts.append(*utilsCode);
+@methods.each_value do |m|
+	cnts << "\t"+m.code(:prototype);
+end
+cnts << "endclass"
+return cnts;
+```
+**api** `utilsCode`
+```ruby
+cnts=[];
+cnts << %Q|`uvm_component_utils_begin(#{@classname})|;
+@fields.each_value do |f|
+	cnts << "\t"+f.code(:utils);
+end
+@vips.each_key do |k|
+	cnts << "\t`uvm_field_object(#{k},UVM_ALL_ON)";
+end
+cnts << "\t`uvm_field_object(vseqr,UVM_ALL_ON)";
+cnts << %Q|`uvm_component_utils_end|;
+cnts.map!{|line| "\t"+line;};
+return cnts;
+```
+**api** `fieldsDeclareCode`
+```ruby
+cnts = [];
+@vips.each_value do |v|
+	cnts << v.code(:instance);
+end
+@fields.each_value do |f|
+	cnts << f.code(:instance);
+end
+cnts << @config.code(:instance);
+cnts << @vseqr.code(:instance);
+cnts.map!{|line| "\t"+line;};
+return cnts;
+```
+## body code generated
+**api** `bodyCode`
+```ruby
+cnts = [];
+@methods.each_value do |m|
+	cnts.append(*@methods.code(:body));
+end
+return cnts;
+```
+
+
+# SVVseqr
+call by `EnvBuilder` to generate codes, example targets are: [[example-vseqr]]
+**file** `lib_v1/svVseqr.rb`
+**require**
+```
+svClass.rb
+```
+**class** `SVVseqr < SVClass`
+**field**
+```
+pairs
+```
+**api** `initialize(r,cn,d)`
+```ruby
+super(r,cn,d,:component);
+@pairs = {};
+setupfields;
+setupselect;
+```
+
+## setupfields
+for vseqr, the field recording the sequencer is necessary
+**api** `setupfields`
+```ruby
+f = SVField.new(:aarray,'uvm_sequencer_base','seqr','string')
+@fields['seqr'] = f;
+```
+## setup a select api
+**api** `setupselect`
+```ruby
+m = SVMethod.new(:func,'select',@classname,'uvm_sequencer_base','string flag');
+lines = <<-CODE.gsub(/^\s*-/,"\t")
+	-return seqr[flag];
+CODE
+m.body(lines);
+@methods['select'] = m;
+```
+## connect vseqr pairs
+**api** `connect(**pairs)`
+```ruby
+# to setup connection of vseqr and real seqr
+pairs.each_pair do |flag,target|
+	@pairs[flag] = target;
+end
+```
+## publish the vseqr component
+**api** `publish`
+```
+cnts = [];
+cnts.append(*filemacro);
+cnts.append(code(:head));
+cnts.append(code(:body));
+cnts.append(*filemacroend);
+buildfile(cnts);
+```
+- filemacro/filemacroend api comes from [[#SVClass]]
+
+**api** `headCode`
+```ruby
+cnts = [];
+cnts << "class #{@classname} extends uvm_sequencer;";
+## builtins
+cnts << %Q|\t`uvm_component_utils_begin(#{@classname})|;
+cnts << %Q|\t`uvm_component_utils_end|;
+
+@fields.each_value do |f|
+	cnts << "\t#{f.code(:instance)}";
+end
+@methods.each_value do |m|
+	cnts << "\t#{m.code(:prototype)}";
+end
+cnts << 'endclass';
+return cnts;
+```
+**api** `bodyCode`
+```ruby
+cnts=[];
+@methods.each_value do |m|
+	cnts.append(*m.code(:body));
+end
+return cnts;
+```
+## connection code in env
+**api** `connectionCode`
+```ruby
+cnts = [];
+@pairs.each_pair do |s,t|
+	cnts << %Q|vseqr.seqr["#{s}"] = #{t};|;
+end
+return cnts;
+```
+
+# SVVSeq
+**file** `lib_v1/svVseq.rb`
+**require**
+```
+svClass.rb
+```
+**class** `SVVseq < SVClass`
+**field**
+```
+fields
+```
+## constructor
+**api** `initialize(r,cn,d)`
+```
+super(r,cn,d,:object);
+@fields={};
+setupfields;
+setupmethods;
+```
+## setup fields for vseq
+**api** `setupfields`
+```ruby
+f = SVField.new(:aarray,'string','seqs','uvm_sequence');
+@fields['seqs'] = f;
+```
+**api** `setupmethods`
+```ruby
+setupset;
+setupbody;
+```
+## setup set api in SV
+**api** `setupset`
+```ruby
+m=SVMethod.new(:func,'set',@classname,'void','uvm_sequence item,string flag','virtual');
+lines = <<-CODE.gsub(/^\s*\./,'')
+	.seqs[item] = flag;
+	.return;
+CODE
+m.body(lines);
+@methods['set'] = m;
+```
+## setup body api in SV
+**api** `setupbody`
+```ruby
+m = SVMethod.new(:task,'body',@classname,'','','virtual');
+
+lines = <<-CODE.gsub(/^\s*-/,'')
+	-foreach(seqs[s]) begin
+	-	s.start(p_sequencer.select(seqs[s]));
+	-end
+CODE
+m.body(lines);
+@methods['body'] = m;
+```
+
+## publish the vseq component
+**api** `publish`
+```ruby
+cnts = [];
+cnts.append(*filemacro);
+cnts.append(code(:head));
+cnts.append(code(:body));
+cnts.append(*filemacroend);
+buildfile(cnts);
+```
+
+**api** `headCode`
+```ruby
+cnts = [];
+cnts << "class #{@classname} extends uvm_sequence;";
+## builtins
+cnts << %Q|\t`uvm_declare_p_sequencer(#{@pseqr})|;
+cnts << %Q|\t`uvm_object_utils_begin(#{@classname})|;
+cnts << %Q|\t`uvm_object_utils_end|;
+
+@fields.each_value do |f|
+	cnts << "\t#{f.code(:instance)}";
+end
+@methods.each_value do |m|
+	cnts << "\t#{m.code(:prototype)}";
+end
+cnts << 'endclass';
+return cnts;
+```
+
+**api** `bodyCode`
+```ruby
+cnts=[];
+@methods.each_value do |m|
+	cnts.append(*m.code(:body));
+end
+return cnts;
+```
+**api** `instanceCode`
+```ruby
+return "#{@classname} vseq;";
+```
+
+# SVScoreboard
+
+## attributes
+## apis
+*addclient*
+```
+# n->name
+# e->exp source: refm.port
+# a->act source: uvc.port
+def addclient(n)
+end
+```
+add a new client to scoreboard, and add connect code, between the scoreboard top and scoreboard client.
+
+
+# SVVipInstance
+A vip instance class, stores instance information and the `SVVip` object according to the typename of the vip. It supports:
+- config override mechansim, configures used by env to setup this vip
+- return code for :config
+- return code for :instance
+*user input example*
+```
+env ... do
+	vip 'vipname',:as=>'instname'
+	instname.config('field0',config.field0)
+end
+```
+The vip command within the env is in `EnvBuilder`, it will:
+- find the `SVVip` object in which the specific vip is defined before;
+- create an object of `SVVipInstance`, record, the vip object and instance name;
+- register to @vips hash in `EnvBuilder`
+- define singleton method in `EnvBuilder`, so that hte prceeding call like `instname.config` will be available
+	- the method will return current vip instance object
+
+**file** `lib_v1/svVipInstance.rb`
+**class** `SVVipInstance`
+## attributes
+**field**
+```
+instname
+base
+debug
+configs
+apis
+```
+## constructor
+**api** `initialize(in,b,d)`
+```ruby
+@instname = in.to_s;
+@base = b;
+@debug= d;
+@configs={};
+@apis={};
+```
+## env configs for vip
+calling this method will record an override in current instance object, and this object cannot published,
+it only provides some of apis to return codes to `SVEnv` such as below
+*code(:instance)*
+return code line for declaring this vip, like: `RhAhb5Vip#(xx) mst;`
+*code(:config)*
+return code to setup/config this vip, like: `mstConfig.field0=xxxx;\n\tmstConfig.field1=config.field1`
+
+- fn->field name defined in a vip
+- ovrd-> override to ...
+**api** `config(fn,ovrd)`
+```ruby
+@configs[fn.to_s] = ovrd.to_s;
+
+```
+
+*the api configurations*:
+this api will setup a call of vip's api
+**api** `api(n,args)`
+```ruby
+@apis[n.to_s] = args.to_s;
+```
+
+## returning sv codes
+**api** `code(u)`
+```ruby
+# usage can be, :instance, :config
+message = "#{u}Code".to_sym;
+return self.send(message);
+```
+**api** `instanceCode`
+```ruby
+# This API to return instance code for vip
+# currently not specially support the parameter mapping
+l = "#{@base.classname} #{@inst};"
+return l;
+```
+**api** `configCode`
+```ruby
+cnts = [];
+@configs.each_pair do |local,ovrd|
+	line = "#{@instname}.#{local} = ovrd;"
+	cnts << line;
+end
+@apis.each_pair do |local,ovrd|
+	line = "#{@instname}.#{local}(#{ovrd});"
+	cnts << line;
+end
+return cnts;
+```
+
+# SVVip
+To define a vip database
+*user input example*:
+```
+# call global method vip
+vip 'vipname' do
+	# block being executed within SVVip object
+	config do
+		...
+	end
+	interface ...
+end
+```
+**file** `lib_v1/svVip.rb`
+**require** 
+```
+pool.rb
+svInterface.rb
+```
+## global interface method
+The interface declaration method are defined in SVVip.rb file, which will declare an interface that can be published if necessary. by calling of the interface method, which can 
+by calling this method, a new object of `SVInterface` will be created, and sub block from user source will be evaluated within this SVInterface object. Finally, this newly created object will be stored into a global module: [[#Pool]].
+**def** `interface(n,&block)`
+```ruby
+svi = SVInterface.new(n);
+svi.instance_eval &block;
+Pool.register(svi,:interface); #TODO, need register in pool.
+```
+[[#SVInterface]], #TODO 
+# SVConfig
+A class being create whoever need it, such as in an env, this object will be built and setup. By using of SVConfig, an SV configure table can be published easily.
+**file** `lib_v1/svConfig.rb`
+**class** `SVConfig < SVClass`
+**field**
+```
+```
+## constructor
+**api** `initialize(r,cn,d)`
+```
+super(r,cn,d,:object)
+builtinConfigs
+```
+**api** `builtinConfigs`
+```
+# setup builtin configs, both for vip/env
+field :enum,'uvm_active_passive_enum','isActive',"UVM_ACTIVE","UVM_ALL_ON"
+```
+
+PS: field, func and task methods are available in [[#SVClass]]
+## publish config files
+**api** `publish`
+```ruby
+cnts = [];
+cnts.append(*filemacro);
+cnts.append(*code(:head));
+cnts.append(*code(:body));
+cnts.append(*filemacroend);
+buildfile(cnts);
+```
+**api** `headCode`
+```ruby
+cnts = [];
+cnts << "class #{@classname} extends uvm_object;";
+
+## builtins
+cnts << %Q|\t`uvm_object_utils_begin(#{@classname})|;
+cnts << %Q|\t`uvm_object_utils_end|;
+
+@fields.each_value do |f|
+	cnts << "\t#{f.code(:instance)}";
+end
+@methods.each_value do |m|
+	cnts << "\t#{m.code(:prototype)}";
+end
+cnts << 'endclass';
+return cnts
+```
+**api** `bodyCode`
+```ruby
+cnts=[];
+@methods.each_value do |m|
+	cnts.append(*m.code(:body));
+end
+return cnts;
+```
+**api** `instanceCode`
+```ruby
+return "#{@classname} config;";
+```
+
+
+
+# SVClass
+**file** `lib_v1/svClass.rb`
+**require**
+```
+svFile.rb
+```
+**class** `SVClass < SVFile`
+**field**
+```
+fields
+methods
+classname
+uvmctype
+```
+## constructor
+**api** `initialize(r,cn,d,t=:component)`
+```ruby
+fn = cn;fn[0..0].downcase!;
+super(r,fn,d);
+@classname = cn;
+@fields = {};
+@methods= {};
+@uvmctype=t;
+constructMethods;
+phaseMethods if @uvmctype==:component;
+```
+## setup builtin methods for uvm
+**api** `constructMethods`
+```ruby
+# setup sv constructors
+args = '';
+if @uvmctype==:component
+	args=%Q|string name="#{@classname}",uvm_component parent=null|;
+elsif @uvmctype==:object
+	args=%Q|string name="#{@classname}"|;
+else
+	args='';
+end
+m = SVMethod.new(:func,'new',@classname,'',args);
+if @uvmctype==:component
+	m.body("\tsuper.new(name,parent);");
+elsif @uvmctype==:object
+	m.body("\tsuper.new(name);")
+end
+@methods['new'] = m;
+```
+**api** `phaseMethods`
+```ruby
+args='uvm_phase phase';
+m = SVMethod.new(:func,'build_phase',@classname,'void',args,'virtual');
+m.body("\tsuper.build_phase(phase);");
+@methods['build_phase'] = m;
+
+m = SVMethod.new(:func,'connect_phase',@classname,'void',args,'virtual');
+m.body("\tsuper.connect_phase(phase);");
+@methods['connect_phase'] = m;
+
+m = SVMethod.new(:task,'run_phase',@classname,args,'virtual');
+m.body("\tsuper.run_phase(phase);");
+@methods['run_phase'] = m;
+return;
+```
+## declare a  field
+- args:
+	- args are different according to different type, but `args[0]` must be: ft->field type, the sv type, will be declared as sv code
+- according to ft, filter t, which can be bit, logic, int ... used to setting uvm_field_*
+**api** `field(*args)`
+```ruby
+t = filterType(args[0]); # bit[3:0] -> int
+f = SVField.new(t,@debug,*args);
+@fields[vn] = f;
+```
+## filter out the field type
+- args:
+	- ft, the filed type
+**api** `filterType(ft)`
+```ruby
+t = nil;
+ptrn = Regexp.new(/ *\[.*\]/);
+ft.sub!(ptrn,'');
+if ft=='bit' or ft=='int' or ft=='logic'
+	t=:int;
+else
+	t=ft.to_sym;
+end
+return t;
+```
+details in : [[#SVField]]
+
+## declare a method
+the method information is being declared in [[#SVMethod]]
+### declare a function
+- args:
+	- n->name
+	- c->class name, usually is self, if not a class method, use nil
+	- r->return type
+	- a->function args
+	- q->extra qualifiers, 'virtual local' ...
+**api** `func(n,c,r,a,q='',&block)`
+```ruby
+m = SVMethod.new(:func,n,c,r,a,q,@debug);
+m.body(block.call);
+@methods[n.to_s] = m;
+```
+**api** `task(n,c,a,q='',&block)`
+```ruby
+m = SVMethod.new(:task,n,c,nil,a,q,@debug);
+m.body(block.call);
+@methods[n.to_s] = m;
+```
+
+# SVFile
+used to operate file based behaviors
+**file** `lib_v1/svFile.rb`
+**class** `SVFile`
+**field**
+```
+debug
+rootpath
+filename
+```
+## constructor
+**api** `initialize(r,fn,d,ext='.svh')`
+```ruby
+@rootpath = r;
+@filename = "#{fn}#{ext}";
+@debug = d;
+```
+## returning code
+**api** `code(u)`
+```ruby
+message = "#{u}Code".to_sym;
+return self.send(message);
+```
+## building a file
+**api** `buildfile(cnts)`
+```ruby
+@debug.print("buildfile: #{File.join(@rootpath,@filename)}");
+fh = File.open(File.join(@rootpath,@filename),'w');
+cnts.each do |line|
+	fh.write("#{line}\n");
+end
+```
+## file macros
+**api** `filemacro`
+```ruby
+m = @filename.sub(/\./,'__');
+cnts = [];
+cnts << '`ifndef '+m;
+cnts << '`define '+m;
+return cnts;
+```
+**api** `filemacroend`
+```ruby
+return ["\n`endif"];
+```
+# SVMethod
+a ruby class used to store sv methods information and placed with sv syntax code.  Major apis are:
+- new, used to setup the user information for the prototype
+- body, used to add lines of the method body
+- code, with different input args, to return the method's prototype or body
+	- body is sv code with function or task definition.
+
+**file** `lib_v1/svmethod.rb`
+**class** `SVMethod`
+**field**
+```
+type
+name
+classname
+rtn
+args
+qualifiers
+procedures
+debug
+```
+
+**api** `initialize(t,n,c,r,a,q='',d)`
+```ruby
+# t->type, :func, :task
+# n->name of method
+# c->classname
+# r->return type for function only
+# a->args
+# q->qualifiers
+@type = t.to_sym;
+@name = n.to_s;
+@classname=c.to_s;
+@rtn  = r.to_s;
+@args = a.to_s;
+@qualifiers=q;
+@procedures=[];
+@debug = d;
+```
+
+**api** `body(line)`
+```ruby
+# line here can be multiple sv code lines with one string.
+# or a single sv code line with one string.
+@procedures << line;
+```
+
+**api** `code(u)`
+```ruby
+# u->usage, of :prototype, :body
+message = "#{u}Code";
+return self.send(message);
+```
+**api** `prototypeCode`
+```ruby
+h = 'extern';
+h += " #{@qualifiers}" if @qualifiers;
+if @type==:func
+	h+=" function #{@rtn}";
+else
+	h+=" task";
+end
+h+=" #{name}(#{@args});";
+return h;
+```
+
+**api** `bodyCode`
+```ruby
+cnts = [];
+h = "";
+if @type==:func
+	h+="function #{@rtn}";
+else
+	h+="task";
+end
+h+="#{@classname}::#{@name}(#{@args});";
+cnts << h;
+@procedures.each do |b|
+	bs = b.split("\n");
+	bs.map!{|l| "\t"+l;};
+	cnts.append(*bs);
+end
+if @type==:func
+	cnts << "endfunction"
+else
+	cnts << "endtask"
+end
+return cnts;
+```
+
+# SVField
+**file** `lib_v1/svField.rb`
+**class** `SVField`
+**field**
+```
+debug
+type
+flag
+```
+## constructor
+- args:
+	- t->type of the field, symbol type, for uvm_field_*;
+	- args, an array, that differentiated in different field type;
+**api** `initialize(t,d,*args)`
+```ruby
+@type = t.to_sym;
+@debug= d;
+@flag = args.pop;
+message = "register#{@type}".to_sym;
+self.send(message,*args);
+```
+## register different type fields
+**api** `registerint(ft,va,default='')`
+```ruby
+# ft->fieldtype, used to declare the sv field.
+# va->varname,
+# default->the default value, default is ''
+@fieldtype = ft.to_s;
+@name = va.to_s;
+@default= default;
+```
+**api** `registerenum(ft,va,default='')`
+```ruby
+@fieldtype = ft;
+@name = va.to_s;
+@default= default;
+```
+**api** `registerreal(ft,va,default='')`
+```ruby
+@fieldtype=ft;
+@name=va.to_s;
+@default=default;
+```
+**api** `registerqueue(ft,va)`
+```ruby
+@fieldtype=ft;
+@name="#{va}[$]";
+@default='';
+```
+**api** `registersarray(ft,va,s)`
+```ruby
+# s->size, the size of array
+@fieldtype=ft;
+@name="#{va}[#{s}]"
+@default='';
+```
+**api** `registerdarray(ft,va)`
+```ruby
+@fieldtype=ft;
+@name="#{va}[]"
+@default='';
+```
+**api** `registeraarray(ft,va,it)`
+```ruby
+# it->index type
+@fieldtype=ft;
+@name="#{va}[#{it}]"
+@default=''
+```
+## getting svcode from field
+- args:
+	- u->usage, for field, there're
+		- :instance, 
+		- :ref, for reference, return the vaname
+		- :utils, for uvm field utils
+		- more are #TBD 
+**api** `code(u)`
+```ruby
+message = "#{u}Code".to_sym;
+return self.send(message);
+```
+**api** `instanceCode`
+```ruby
+l = "#{@fieldtype} #{@name};";
+return l;
+```
+**api** `utilsCode`
+```ruby
+l = "`uvm_field_#{@type}(";
+if @type==:enum
+	l+="#{@fieldtype},";
+end
+l+="#{@name},#{@flag})";
+return l;
+```
+**api** `refCode`
+```ruby
+return @name;
+```
+
+
+
+
+# TopBuilder
+**file** `lib_v1/topBuilder.rb`
+**module** `TopBuilder`
+**field**
+```
+top
+```
+
+## TopBuilder::finalize
+#TODO 
+## TopBuilder::publish
+to publish `top.sv` file in given root: `*/verfi/tb/`.
+
+
+
+# Top
+**file** `lib_v1/top.rb`
+**class** `Top`
+
+## Top::interface
+**api** `interface(it,name)`
+- way to declare an interface at tb top level
+- an interface declaration will be found in the main scope [[#global interface method]].
+- create a method in Top, named as the interface's instance name
+- 
+```ruby
+intf = Pool.find(it,:interface);
+raise RunException.new("no interface(#{it}) declared",3) if intf==nil;
+
+```
+
+
+
+
+## global top method at the end of file
+**def** `top(project,&block)`
+```ruby
+top = Top.new(project);
+top.instance_eval &block;
+TopBuilder.top = top;
+```
+
+
+# Pool
+It's a global module, for search/storing declared items.
+**file** `lib_v1/pool.rb`
+**module** `Pool`
+**field**
+```
+pool;
+```
+**api** `self.register(o,t)`
+to register a declared object with specified type
+```ruby
+@pool={} unless @pool.is_a?(Hash);
+@pool[t.to_sym]=[] unless @pool.has_key?(t.to_sym);
+@pool[t.to_sym] << o;
+```
+**api** `self.find(n,t)`
+find by name according to given type.
+```ruby
+t = t.to_sym;
+return nil unless @pool.has_key?(t);
+@pool[t].each do |o|
+	return o if (o.name == n.to_s);
+end
+return nil;
+```
+#TODO 
+
+# Debugger
+this is a common from codelib
+**file** `lib_v1/debugger.rb`
+**rbcode** `debugger`
+# <PACKER> - v2/mdc-ruby,33277
+#! /usr/bin/env ruby
+
+require 'rhload';
+
+$version = 'v1';
+$toolhome = File.dirname(File.absolute_path(__FILE__));
+$lib = "lib_#{$version}";
+$LOAD_PATH << File.join($toolhome,$lib);
+
+rhload "debugger.rb";
+#rhload "#{$lib}/exceptions.rb";
+#rhload "#{$lib}/options.rb";
+#rhload "#{$lib}/fileoperator.rb";
+#rhload "#{$lib}/database.rb";
+rhload "mainentry.rb";
+
+begin
+	debug=Debugger.new(true);
+	e = MainEntry.new(debug);
+	e.run();
+rescue RunException => e
+	e.process();
+rescue MarkException => e
+	e.process();
+end
+
+debug.print("program exists successfully");
+exit 0;
+# <PACKER> - v2/__installerPacker__.pak,33204
+# <PACKER> - v2/lib_v1/options.rb,33204
+require 'optparse';
+
+class Options
+	# mode: idle,help,store,display,insert
+	# idle is doing nothing
+	attr_accessor :options;
+	attr :debug;
+	def initialize(d)
+		@debug  = d;
+		@options= {};
+		loption = OptionParser.new() do |opt|
+			opt.on('-s','--source=SOURCE','specify the source document') do |v|
+				@options[:source] = v;
+			end
+		end.parse!
+	end
+
+end
+# <PACKER> - v2/lib_v1/mdRubyReader.rb,33204
+require 'mdRubyBuilder.rb'
+require 'exceptions.rb'
+require 'codelib.rb'
+
+class MDRubyReader
+
+	attr :rawcontents;
+	attr :currentline;
+	attr :maxline;
+	attr :current; # current file object to build
+	attr :files;
+	attr :debug;
+
+	def initialize(cnts,d)
+		@rawcontents = cnts;
+		@maxline = @rawcontents.length;
+		@currentline = 1;
+		@files = {};
+		@debug = d;
+	end
+
+	def filtmark(line)
+		ptrn = Regexp.new(/\*\*(\S+)\*\*/);
+		mdata= ptrn.match(line);
+		return nil unless mdata;
+		mark = mdata[1].to_s;
+		@debug.print("detect mark:#{mark}");
+		message = "mark#{mark}".to_sym;
+		self.send(message,line);
+		return mark;
+	end
+	# when this method is called, then file mark is detected
+	# supported marks
+	def markfile(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no filename found in file mark(#{line})") unless mdata;
+		# @filename = mdata[1];
+		@debug.print("building new file: #{mdata[1]}");
+		@files[mdata[1]] = MDRubyBuilder.new(mdata[1],@debug);
+		@current = @files[mdata[1]];
+		return nil;
+	end
+	def markclass(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no classname found in line(#{line})") unless mdata;
+		@current.classname= mdata[1];
+		return nil;
+	end
+	def markmodule(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no modulename found in line(#{line})") unless mdata;
+		@current.modulename= mdata[1];
+		return nil;
+	end
+	def markrequire(line)
+		cnts = getCodeblock;
+		cnts.map!{|line| line.chomp;};
+		cnts.map!{|line| %Q|require "#{line}";|;}
+		@debug.print("require code: #{cnts}");
+		@current.requires(*cnts);
+		return;
+	end
+	def markapi(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		cnts=[];
+		raise MarkException.new("no api name found in line(#{line})") unless mdata;
+		api = mdata[1];
+		body=getCodeblock;
+		body.map!{|line| line.chomp;};
+		body.map!{|line| "\t"+line;};
+		cnts << "def #{api} "+'##{{{';
+		cnts.append(*body);
+		cnts << "end"+'##}}}';
+		cnts.map!{|line| "\t"+line;};
+		@current.code(*cnts);
+	end
+	def markfield(line)
+		cnts=[];
+		body=getCodeblock;
+		body.each do |l|
+			cnts << "\tattr_accessor :#{l};";
+		end
+		@current.code(*cnts);
+	end
+	def markdef(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		cnts=[];
+		raise MarkException.new("no api name found in line(#{line})") unless mdata;
+		api = mdata[1];
+		body=getCodeblock;
+		body.map!{|line| line.chomp;};
+		body.map!{|line| "\t"+line;};
+		cnts << "def #{api} "+'##{{{';
+		cnts.append(*body);
+		cnts << "end"+'##}}}';
+		# cnts.map!{|line| "\t"+line;};
+		@current.global(*cnts);
+	end
+	def markapio(line)
+		# api replacement, used for rbcode
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no api name found in line(#{line})") unless mdata;
+		api = mdata[1];
+		cnts=getCodeblock;
+		@current.codelib.apio(api,cnts);
+	end
+
+	def __filtOptions__(line)
+		rtns = {};
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no option found in line(#{line})") unless mdata;
+		option = mdata[1];
+		options= option.split(',');
+		options.each do |o|
+			ptrn = Regexp.new(/(\S+)\s*:\s*(\S+)/);
+			mdata= ptrn.match(o);
+			rtns[mdata[1].to_s]=mdata[2].to_s if mdata;
+		end
+		return rtns;
+	end
+	def getCodeblock
+		cnts = [];
+		@currentline += 1;
+		started = false;
+		while (@currentline <= @maxline) do
+			#@debug.print("mdfile: currentline:#{@currentline},cnt:#{@rawcontents[@currentline-1]}");
+			break if /^```/=~@rawcontents[@currentline-1] and started==true;
+			cnts << @rawcontents[@currentline-1] if started==true;
+			started=true if /^```/=~@rawcontents[@currentline-1] and started==false;
+			@currentline += 1;
+		end
+		cnts.map!{|l| l.chomp;};
+		return cnts;
+	end
+	# def markcode(line)
+	# 	options = __filtOptions__(line);
+	# 	options['indent'] = 0 unless options.has_key?('indent');
+	# 	cnts = getCodeblock;
+	# 	@current.code(cnts,:indent=>options['indent']);
+	# end
+	def markrbcode(line)
+		ptrn = Regexp.new(/`(.+)`/);
+		mdata= ptrn.match(line);
+		raise MarkException.new("no codeid found in line(#{line})") unless mdata;
+		codeid = mdata[1];
+		## get all option lines for codeid
+		## cnts = readCodelibOptions;
+		processCodelib(codeid);
+	end
+
+	def processCodelib(id)
+		# process codelib
+		cb = Codelib.new(id,@debug);
+		@current.codelib = cb;
+	end
+
+	## def readCodelibOptions
+	## 	# reading from current line until next line not started with `
+	## 	cnts = [];
+	## 	@currentline += 1;
+	## 	while (@currentline <= @maxline) do
+	## 		break if @rawcontents[@currentline-1][0..0] != '`';
+	## 		cnts << @rawcontents[@currentline-1];
+	## 		@currentline += 1;
+	## 	end
+	## 	return cnts;
+	## end
+
+	def process()
+		while (@currentline <= @maxline) do
+			filtmark(@rawcontents[@currentline-1]);
+			@currentline+=1;
+		end
+	end
+
+	def build
+		@files.each_pair do |n,o|
+			o.build(); # building @contents in each self
+		end
+	end
+
+	def publish(fop)
+		@files.each_pair do |n,o|
+			o.publish(fop); # building contents into files
+		end
+	end
+end
+# <PACKER> - v2/lib_v1/mdFileBuilder.rb,33204
+class MDFileBuilder
+
+	attr_accessor :filename;
+	attr_accessor :codes;
+	attr :debug;
+	def initialize(fn,d)
+		@filename = fn;
+		@debug = d;
+		@codes = [];
+	end
+
+	def code(*lines)
+		@codes.append(*lines);
+	end
+
+	# add code for this file, will be added into @codes
+	# every time call this code method, will ad one string with "\n"
+	# sa->source in array
+	## def code(sa,**opts)
+	## 	indent=0;
+	## 	indent=opts[:indent] if opts.has_key?(:indent);
+	## 	sa.map!{|line| ("\t"*indent)+line;};
+	## 	line = sa.join("\n");
+	## 	@codes << line;
+	## end
+end
+# <PACKER> - v2/lib_v1/mdRubyBuilder.rb,33204
+require 'mdFileBuilder.rb'
+class MDRubyBuilder < MDFileBuilder
+	attr_accessor :classname;
+	attr_accessor :modulename;
+	attr_accessor :codelib;
+	attr_accessor :globals;
+	attr_accessor :requiredfiles;
+
+	attr :contents;
+	def initialize(fn,d)
+		@classname = '';
+		@modulename= '';
+		super(fn,d);
+		@contents=[];
+		@globals =[];
+		@requiredfiles=[];
+	end
+	def global(*lines)
+		@globals.append(*lines);
+	end
+	def requires(*cnts)
+		@requiredfiles.append(*cnts);
+	end
+
+	def build
+		@contents.append(*@requiredfiles);
+		@contents << "class #{@classname}" if @classname!='';
+		@contents << "module #{@modulename}" if @modulename!='';
+		@codes.each do |code|
+			splitted = code.split("\n");
+			@contents.append(*splitted);
+		end
+		@contents << "end" if @classname!='' or @modulename!='';
+		@globals.each do |code|
+			splitted = code.split("\n");
+			@contents.append(*splitted);
+		end
+		@contents.append(*@codelib.codes) if @codelib;
+		return;
+	end
+
+	def publish(fop)
+		@debug.print("building file: #{@filename} ...");
+		fop.buildfile(@filename,@contents);
+	end
+
+end
+# <PACKER> - v2/lib_v1/debugger.rb,33204
+class Debugger
+	attr_accessor :enabled;
+	def initialize(m)
+		@enabled = m;
+	end
+
+	def print(msg)
+		f = caller(1)[0];
+		puts "[DEBUG] #{f}: #{msg}" if (@enabled);
+	end
+end
+# <PACKER> - v2/lib_v1/exceptions.rb,33204
+class RunException < Exception
+	attr :message;
+	attr :signal;
+	def initialize msg,s=0
+		@message = msg;
+		@signal = s;
+		@signal = -1 if @signal==0;
+	end
+	
+	def process
+		$stderr.puts "[ERROR], #{@message}";
+		return @signal;
+	end
+end
+
+class MarkException < Exception
+	attr :signal;
+	attr :message;
+	def initialize msg
+		@message = msg;
+		@signal  = 15;
+	end
+	def process
+		$stderr.puts "[ERROR], #{@message}";
+		return @signal;
+	end
+end
+# <PACKER> - v2/lib_v1/fileOperator.rb,33204
+class FileOperator
+	attr :debug;
+	def initialize(d)
+		@debug = d;
+	end
+
+	def read(f)
+		fh = File.open(f,'r');
+		cnts = fh.readlines();
+		fh.close();
+		return cnts;
+	end
+
+	def buildfile(f,cnts)
+		p = File.dirname(File.absolute_path(f));
+		stack=[];
+		while not Dir.exists?(p) do
+			stack << p;
+			p = File.dirname(p);
+		end
+		stack.reverse!;
+		__builddir__(stack);
+		__buildfile__(f,cnts);
+	end
+	def __buildfile__(f,cnts)
+		fh = File.open(f,'w');
+		cnts.each do |line|
+			fh.write("#{line}\n");
+		end
+	end
+	
+	def __builddir__(ps)
+		ps.each do |p|
+			@debug.print("building dir: #{p}");
+			Dir.mkdir(p) unless Dir.exists?(p);
+		end
+	end
+end
+# <PACKER> - v2/lib_v1/mainentry.rb,33204
+require 'exceptions.rb'
+require 'mdRubyReader.rb'
+require 'options.rb'
+require 'fileOperator.rb'
+class MainEntry
+	attr :debug
+	attr :options;
+	def initialize(d)
+		@debug = d;
+		@options = Options.new(d).options;
+	end
+
+	def run
+		fop = FileOperator.new(@debug);
+		raise RunException.new("no source specific",3) unless @options.has_key?(:source) && @options[:source]!='';
+		cnts = fop.read(@options[:source]);
+		mr = MDRubyReader.new(cnts,@debug);
+		mr.process();
+		mr.build();
+		mr.publish(fop);
+	end
+end
+# <PACKER> - v2/lib_v1/codelib.rb,33204
+# support operations for ruby codelib
+require 'open3';
+class Codelib
+	attr :debug;
+	attr :codeid;
+	attr :codes;
+	def initialize(id,d)
+		@debug =d;
+		@codeid=id;
+		getcodes;
+	end
+
+	def getcodes
+		tmpfile = ".mdc_tmp_#{Process.pid}";
+		fh = File.open(tmpfile,'w');fh.close();
+		cmd = %Q|/local_vol1_nobackup/ryanh/Git/codelib/codelib-main/bin/cb-rb -i #{@codeid} -f #{tmpfile},1|;
+		out,err,st = Open3.capture3(cmd);
+		raise RunException.new("codelib process e
