@@ -14,7 +14,7 @@ class Codelib
 	def getcodes
 		tmpfile = ".mdc_tmp_#{Process.pid}";
 		fh = File.open(tmpfile,'w');fh.close();
-		cmd = %Q|/local_vol1_nobackup/ryanh/Git/codelib/codelib-main/bin/cb-rb -i #{@codeid} -f #{tmpfile},1|;
+		cmd = %Q|cb-rb -i #{@codeid} -f #{tmpfile},1|;
 		out,err,st = Open3.capture3(cmd);
 		raise RunException.new("codelib process error(codeid: #{@codeid})",5) if st.exitstatus!=0;
 		fh = File.open(tmpfile,'r');
