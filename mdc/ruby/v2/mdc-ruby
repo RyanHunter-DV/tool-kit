@@ -1,0 +1,29 @@
+# <PACKER> - v2/mdc-ruby,33277
+#! /usr/bin/env ruby
+
+require 'rhload';
+
+$version = 'v1';
+$toolhome = File.dirname(File.absolute_path(__FILE__));
+$lib = "lib_#{$version}";
+$LOAD_PATH << File.join($toolhome,$lib);
+
+rhload "debugger.rb";
+#rhload "#{$lib}/exceptions.rb";
+#rhload "#{$lib}/options.rb";
+#rhload "#{$lib}/fileoperator.rb";
+#rhload "#{$lib}/database.rb";
+rhload "mainentry.rb";
+
+begin
+	debug=Debugger.new(true);
+	e = MainEntry.new(debug);
+	e.run();
+rescue RunException => e
+	e.process();
+rescue MarkException => e
+	e.process();
+end
+
+debug.print("program exists successfully");
+exit 0;
