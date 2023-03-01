@@ -1,4 +1,3 @@
-# <PACKER> - v2/mdc-ruby,33277
 #! /usr/bin/env ruby
 
 require 'rhload';
