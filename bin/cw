@@ -1,0 +1,12 @@
+#! /usr/bin/env ruby
+$version  = 'v1';
+$toolName = 'cw';
+$toolHome = File.absolute_path(File.dirname(__FILE__)+'/..');
+
+$LOAD_PATH << File.join($toolHome,$toolName,$version);
+
+require 'Core';
+
+core = Core.new();
+$signal = core.run();
+exit $signal;
