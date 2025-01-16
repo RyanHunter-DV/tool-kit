@@ -21,8 +21,8 @@ if [ "$md" = "$flag" ]; then
 	return 0;
 else
 	export STEM=$workdir
-	eval $codes
 	codes=`cat $workdir/env/modulefile`
+	eval $codes
 	export __BOOTENV__FLAG__=$md
 	echo "env boot completed"
 fi
