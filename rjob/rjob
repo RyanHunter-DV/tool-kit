@@ -20,11 +20,18 @@ then can next command being executed, or else the execution will stop immediated
 - need consider the password entering question
 """
 
-require 'rhload';
+if ENV.has_key?('RUBY_LIB')
+	splitted=ENV['RUBY_LIB'].split(':');
+	splitted.each do |s|
+		$LOAD_PATH << s;
+	end
+end
+#puts $LOAD_PATH
+#require 'rhload';
 $toolhome = File.dirname(File.absolute_path(__FILE__));
 $LOAD_PATH << $toolhome;
 
-rhload 'lib/mainentry.rb';
+require_relative 'lib/mainentry.rb';
 
 e = MainEntry.new();
 $SIG = e.run();

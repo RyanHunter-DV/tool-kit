@@ -1,6 +1,6 @@
-rhload 'lib/options.rb'
-rhload 'cmdshell.rb'
-rhload 'debug.rb'
+require 'lib/options.rb'
+require 'cmdshell'
+require 'printer'
 class MainEntry
     attr :option;
 	attr :configHome;
