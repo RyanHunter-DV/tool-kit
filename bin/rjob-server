@@ -1,0 +1,149 @@
+#! /usr/bin/env ruby
+
+# this is the server rjob executor.
+# specifically for IC project executing.
+# 1.find the project exists or not
+# 2.using one command: bootenv;run command
+
+require 'optparse'
+require 'fileutils'
+
+class RJobServer
+	attr :options
+
+	def initialize
+		@options = {}
+		@options[:path] = ''
+		@options[:github] = ''
+		@options[:command] = ''
+		@options[:help] = false
+		parse_options
+	end
+
+	def parse_options
+		OptionParser.new do |opts|
+			opts.banner = "Usage: rjob-server -p <path> [--github <name>] -e <command>"
+
+			opts.on('-p', '--path=PATH', 'specify project path') do |val|
+				@options[:path] = val
+			end
+
+			opts.on('--github=NAME', 'specify GitHub repository name to clone') do |val|
+				@options[:github] = val
+			end
+
+			opts.on('-e', '--execute=COMMAND', 'specify command to execute after bootenv') do |val|
+				@options[:command] = val
+			end
+
+			opts.on('-h', '--help', 'show this help message') do
+				@options[:help] = true
+			end
+		end.parse!
+
+		if @options[:help]
+			show_help
+			exit 0
+		end
+
+		validate_options
+	end
+
+	def validate_options
+		if @options[:path].empty?
+			puts "Error: Project path (-p) is required"
+			show_help
+			exit 1
+		end
+
+		if @options[:command].empty?
+			puts "Error: Command to execute (-e) is required"
+			show_help
+			exit 1
+		end
+	end
+
+	def show_help
+		puts "rjob-server - IC project executor"
+		puts ""
+		puts "Usage: rjob-server -p <path> [--github <name>] -e <command>"
+		puts ""
+		puts "Options:"
+		puts "  -p, --path=PATH       Specify project path"
+		puts "  --github=NAME         Specify GitHub repository name to clone"
+		puts "  -e, --execute=COMMAND Specify command to execute after bootenv"
+		puts "  -h, --help            Show this help message"
+		puts ""
+		puts "Examples:"
+		puts "  rjob-server -p /path/to/project -e 'make build'"
+		puts "  rjob-server -p /path/to/project --github user/repo -e 'make test'"
+	end
+
+	def project_exists?
+		Dir.exist?(@options[:path])
+	end
+
+	def create_project_directory
+		unless Dir.exist?(@options[:path])
+			puts "Creating project directory: #{@options[:path]}"
+			FileUtils.mkdir_p(@options[:path])
+		end
+	end
+
+	def clone_github_repo
+		return if @options[:github].empty?
+
+		puts "Cloning GitHub repository: #{@options[:github]}"
+		Dir.chdir(@options[:path]) do
+			git_cmd = "git clone git@github.com:RyanHunter-DV/#{@options[:github]}.git ."
+			puts "Executing command: #{git_cmd}"
+			#TODO, for test, system(git_cmd)
+			unless $?.success?
+				puts "Error: Failed to clone repository #{@options[:github]}"
+				exit 1
+			end
+		end
+	end
+
+	def execute_bootenv_and_command
+		puts "Changing to project directory: #{@options[:path]}"
+		Dir.chdir(@options[:path]) do
+			cmd = "bootenv;#{@options[:command]}"
+			puts "Executing command: #{cmd}"
+			#TODO, for test,unless system(cmd)
+			#TODO, for test,	puts "Error: Command execution failed"
+			#TODO, for test,	exit 1
+			#TODO, for test,end
+		end
+	end
+
+	def run
+		puts "rjob-server: Starting project execution"
+		puts "Project path: #{@options[:path]}"
+		puts "GitHub repo: #{@options[:github]}" unless @options[:github].empty?
+		puts "Command: #{@options[:command]}"
+		puts ""
+
+		if project_exists?
+			puts "Project directory exists, proceeding with execution..."
+		else
+			puts "Project directory does not exist, creating..."
+			create_project_directory
+			
+			if !@options[:github].empty?
+				clone_github_repo
+			else
+				puts "No GitHub repository specified, using existing directory"
+			end
+		end
+
+		execute_bootenv_and_command
+		puts "rjob-server: Execution completed successfully"
+	end
+end
+
+# Main execution
+if __FILE__ == $0
+	server = RJobServer.new
+	server.run
+end

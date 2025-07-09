@@ -1,0 +1,17 @@
+#! /usr/bin/env ruby
+
+$version = 'g1'
+$tool_home= File.absolute_path(File.join(File.dirname(__FILE__),'..'));
+$LOAD_PATH << File.join($tool_home,"rjob/#{$version}");
+
+require 'lib/mainentry.rb';
+
+begin
+  e = MainEntry.new()
+  e.run()
+rescue => ex
+  puts "Error: #{ex.message}"
+  exit 1
+end
+
+exit 0;
