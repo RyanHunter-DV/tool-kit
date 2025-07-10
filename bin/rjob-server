@@ -110,6 +110,19 @@ class RJobServer
 		end
 	end
 
+	def update_github_repo
+		puts "Updating GitHub repository: #{@options[:github]}"
+		Dir.chdir(@options[:path]) do
+			git_cmd = "git pull"
+			puts "Executing command: #{git_cmd}"
+			system(git_cmd)
+			unless $?.success?
+				puts "Error: Failed to update repository #{@options[:github]}"
+				exit 1
+			end
+		end
+	end
+
 	def execute_bootenv_and_command
 		puts "Changing to project directory: #{@options[:path]}"
 		Dir.chdir(@options[:path]) do
@@ -132,6 +145,7 @@ class RJobServer
 
 		if project_exists?
 			puts "Project directory exists, proceeding with execution..."
+			update_github_repo
 		else
 			puts "Project directory does not exist, creating..."
 			create_project_directory
