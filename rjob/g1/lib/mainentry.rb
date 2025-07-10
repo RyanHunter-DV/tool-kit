@@ -81,7 +81,7 @@ class MainEntry
 		puts ssh_cmd
 
 		# Actually execute the command
-		#TODO, for test, system(ssh_cmd)
+		system(ssh_cmd)
 	end
 
 	def run
