@@ -17,6 +17,7 @@ class RJobServer
 		@options[:github] = ''
 		@options[:command] = ''
 		@options[:help] = false
+		@options[:bootenv] = false
 		parse_options
 	end
 
@@ -34,6 +35,10 @@ class RJobServer
 
 			opts.on('-e', '--execute=COMMAND', 'specify command to execute after bootenv') do |val|
 				@options[:command] = val
+			end
+
+			opts.on('-b', '--bootenv', 'specify bootenv command to execute') do |val|
+				@options[:bootenv] = true
 			end
 
 			opts.on('-h', '--help', 'show this help message') do
@@ -108,12 +113,13 @@ class RJobServer
 	def execute_bootenv_and_command
 		puts "Changing to project directory: #{@options[:path]}"
 		Dir.chdir(@options[:path]) do
-			cmd = "bootenv;#{@options[:command]}"
+			cmd= @options[:command];
+			cmd = "bootenv;#{cmd}" if @options[:bootenv];
 			puts "Executing command: #{cmd}"
-			#TODO, for test,unless system(cmd)
-			#TODO, for test,	puts "Error: Command execution failed"
-			#TODO, for test,	exit 1
-			#TODO, for test,end
+			unless system(cmd)
+				puts "Error: Command execution failed"
+				exit 1
+			end
 		end
 	end
 
